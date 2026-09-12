@@ -8,6 +8,7 @@ struct RootView: View {
         Group {
             if lock.phase == .locked { LockView() }
             else if store.selected == nil { InstanceSetupView() }
+            else if let instance = store.selected, !store.hasSession(for: instance) { LoginView(instance: instance) }
             else { AdminTabView() }
         }
         .tint(.cyan)

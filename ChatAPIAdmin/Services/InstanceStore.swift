@@ -20,6 +20,9 @@ import Observation
     func remove(_ instance: Instance) { instances.removeAll { $0.id == instance.id }; KeychainStore.delete(account: "session.\(instance.id.uuidString)"); selectedID = instances.first?.id; try? persist() }
     func token(for instance: Instance) -> String? { guard let data = try? KeychainStore.load(account: "session.\(instance.id.uuidString)") else { return nil }; return String(data: data, encoding: .utf8) }
     func saveToken(_ token: String, for instance: Instance) throws { try KeychainStore.save(Data(token.utf8), account: "session.\(instance.id.uuidString)") }
+    func hasSession(for instance: Instance) -> Bool { (try? KeychainStore.load(account: "session-marker.\(instance.id.uuidString)")) != nil }
+    func markSession(for instance: Instance) throws { try KeychainStore.save(Data("cookie-session".utf8), account: "session-marker.\(instance.id.uuidString)") }
+    func clearSession(for instance: Instance) { KeychainStore.delete(account: "session.\(instance.id.uuidString)"); KeychainStore.delete(account: "session-marker.\(instance.id.uuidString)") }
     func client() -> APIClient? { guard let instance = selected else { return nil }; return APIClient(instance: instance, token: token(for: instance)) }
     private func persist() throws { try KeychainStore.save(try JSONEncoder().encode(instances), account: "instances") }
 }

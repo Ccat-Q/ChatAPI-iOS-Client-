@@ -12,6 +12,12 @@ actor APIClient {
 
     func setToken(_ value: String?) { token = value }
 
+    func login(username: String, password: String) async throws {
+        struct Credentials: Encodable { let username: String; let password: String }
+        struct LoginResponse: Decodable { let ok: Bool }
+        let _: LoginResponse = try await request("/api/auth/login", method: "POST", body: Credentials(username: username, password: password))
+    }
+
     func get<T: Decodable>(_ path: String) async throws -> T { try await request(path, method: "GET", body: EmptyBody()) }
     func post<T: Decodable, Body: Encodable>(_ path: String, body: Body) async throws -> T { try await request(path, method: "POST", body: body) }
     func patch<T: Decodable, Body: Encodable>(_ path: String, body: Body) async throws -> T { try await request(path, method: "PATCH", body: body) }

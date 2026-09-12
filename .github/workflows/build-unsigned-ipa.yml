@@ -12,6 +12,13 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - name: Restore Xcode build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: xcode-${{ runner.os }}-${{ hashFiles('ChatAPIAdmin.xcodeproj/project.pbxproj', 'ChatAPIAdmin/**/*.swift') }}
+          restore-keys: |
+            xcode-${{ runner.os }}-
       - name: Build unsigned archive
         run: xcodebuild -project ChatAPIAdmin.xcodeproj -scheme ChatAPIAdmin -configuration Release -sdk iphoneos -archivePath "$PWD/build/ChatAPIAdmin.xcarchive" archive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
       - name: Package IPA and symbols

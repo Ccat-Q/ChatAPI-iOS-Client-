@@ -10,7 +10,7 @@ struct ChatAPIAdminApp: App {
             RootView()
                 .environment(store)
                 .environment(lock)
-                .task { await store.restore() }
+                .task { store.restore() }
                 .onChange(of: lock.phase) { _, phase in
                     if phase == .locked { lock.unlock() }
                 }

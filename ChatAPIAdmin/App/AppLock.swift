@@ -2,7 +2,7 @@ import Foundation
 import LocalAuthentication
 import Observation
 
-@Observable final class AppLock {
+@MainActor @Observable final class AppLock {
     enum Phase { case locked, unlocked }
     private(set) var phase: Phase = .locked
 
@@ -14,7 +14,7 @@ import Observation
             return
         }
         context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Unlock ChatAPI Admin") { [weak self] success, _ in
-            if success { DispatchQueue.main.async { self?.phase = .unlocked } }
+            if success { Task { @MainActor [weak self] in self?.phase = .unlocked } }
         }
     }
 

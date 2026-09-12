@@ -1,12 +1,12 @@
 import Foundation
 import Observation
 
-@Observable final class InstanceStore {
+@MainActor @Observable final class InstanceStore {
     private(set) var instances: [Instance] = []
     var selectedID: UUID?
     var selected: Instance? { instances.first { $0.id == selectedID } }
 
-    func restore() async {
+    func restore() {
         guard let data = try? KeychainStore.load(account: "instances"), let values = try? JSONDecoder().decode([Instance].self, from: data) else { return }
         instances = values; selectedID = values.first?.id
     }

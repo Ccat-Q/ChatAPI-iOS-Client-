@@ -27,6 +27,10 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let scheme = url.scheme, let host = url.host {
+            let port = url.port.map { ":\($0)" } ?? ""
+            request.setValue("\(scheme)://\(host)\(port)", forHTTPHeaderField: "Origin")
+        }
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if let body { request.httpBody = try JSONEncoder().encode(body); request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         do {

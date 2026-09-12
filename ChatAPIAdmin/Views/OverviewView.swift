@@ -10,10 +10,9 @@ struct OverviewView: View {
             ScrollView {
                 if let overview {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                        MetricCard(title: "Active", value: overview.activeRequests, icon: "waveform.path.ecg")
-                        MetricCard(title: "Pending", value: overview.pendingTurns, icon: "hourglass")
-                        MetricCard(title: "Users", value: overview.totalUsers, icon: "person.2")
-                        MetricCard(title: "Runtime", value: overview.runtimeStatus, icon: "server.rack")
+                        MetricCard(title: "Health", value: overview.ok ? "Healthy" : "Unavailable", icon: "heart.text.square")
+                        MetricCard(title: "Mode", value: overview.mode, icon: "server.rack")
+                        MetricCard(title: "Database", value: overview.driver, icon: "cylinder")
                     }.padding()
                 } else { ProgressView().padding(.top, 80) }
             }
@@ -23,7 +22,7 @@ struct OverviewView: View {
             .alert("Could Not Load Overview", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK", role: .cancel) {} } message: { Text(error ?? "") }
         }
     }
-    private func load() async { guard let client = store.client() else { return }; do { overview = try await client.get("/api/admin/settings/overview") } catch { self.error = error.localizedDescription } }
+    private func load() async { guard let client = store.client() else { return }; do { overview = try await client.get("/api/health") } catch { self.error = error.localizedDescription } }
 }
 
 private struct MetricCard<Value: CustomStringConvertible>: View {

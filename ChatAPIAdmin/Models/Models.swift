@@ -30,10 +30,9 @@ struct SettingsField: Codable, Identifiable, Hashable {
 }
 
 struct Overview: Codable, Hashable {
-    let activeRequests: Int
-    let pendingTurns: Int
-    let totalUsers: Int
-    let runtimeStatus: String
+    let ok: Bool
+    let mode: String
+    let driver: String
 }
 
 struct AdminUser: Codable, Identifiable, Hashable {

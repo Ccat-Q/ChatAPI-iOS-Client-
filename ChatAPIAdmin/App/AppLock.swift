@@ -8,9 +8,12 @@ import Observation
 
     func unlock() {
         let context = LAContext()
+        context.localizedFallbackTitle = "Use Device Passcode"
         var error: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
-            phase = .unlocked
+        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
+            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Unlock ChatAPI Admin") { [weak self] success, _ in
+                if success { Task { @MainActor [weak self] in self?.phase = .unlocked } }
+            }
             return
         }
         context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Unlock ChatAPI Admin") { [weak self] success, _ in

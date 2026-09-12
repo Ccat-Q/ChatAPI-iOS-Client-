@@ -7,8 +7,19 @@ enum APIError: LocalizedError { case unauthorized, invalidResponse, server(Strin
 actor APIClient {
     private let instance: Instance
     private var token: String?
+    private let session: URLSession
 
-    init(instance: Instance, token: String?) { self.instance = instance; self.token = token }
+    init(instance: Instance, token: String?) {
+        self.instance = instance
+        self.token = token
+        let configuration = URLSessionConfiguration.default
+        configuration.httpCookieStorage = HTTPCookieStorage.shared
+        configuration.httpCookieAcceptPolicy = .always
+        configuration.httpShouldSetCookies = true
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        self.session = URLSession(configuration: configuration)
+    }
 
     func setToken(_ value: String?) { token = value }
 
@@ -26,6 +37,7 @@ actor APIClient {
         guard let url = URL(string: path, relativeTo: instance.baseURL) else { throw APIError.invalidResponse }
         var request = URLRequest(url: url)
         request.httpMethod = method
+        request.httpShouldHandleCookies = true
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let scheme = url.scheme, let host = url.host {
             let port = url.port.map { ":\($0)" } ?? ""
@@ -34,7 +46,7 @@ actor APIClient {
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if let body { request.httpBody = try JSONEncoder().encode(body); request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
             if http.statusCode == 401 { throw APIError.unauthorized }
             guard (200..<300).contains(http.statusCode) else { throw APIError.server(String(data: data, encoding: .utf8) ?? "Request failed (\(http.statusCode)).") }

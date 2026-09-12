@@ -3,7 +3,16 @@ import SwiftUI
 struct MoreView: View {
     @Environment(InstanceStore.self) private var store
     @Environment(AppSettings.self) private var settings
-    var body: some View { NavigationStack { List { Section("Administration") { NavigationLink("System Settings") { SettingsCatalogView() }; NavigationLink("Bark Notifications") { BarkSettingsView() }; NavigationLink("Audit Log") { Text("Audit records load from /api/admin/audit/logs.").navigationTitle("Audit Log") } }; Section("Language") { Picker("App Language", selection: $settings.language) { ForEach(AppLanguage.allCases) { Text($0.title).tag($0) } } }; Section("Instance") { if let instance = store.selected { LabeledContent("URL", value: instance.baseURL.absoluteString); Button("Remove Instance", role: .destructive) { store.remove(instance) } } } }.navigationTitle("More") } }
+    var body: some View {
+        @Bindable var settings = settings
+        NavigationStack {
+            List {
+                Section("Administration") { NavigationLink("System Settings") { SettingsCatalogView() }; NavigationLink("Bark Notifications") { BarkSettingsView() }; NavigationLink("Audit Log") { Text("Audit records load from /api/admin/audit/logs.").navigationTitle("Audit Log") } }
+                Section("Language") { Picker("App Language", selection: $settings.language) { ForEach(AppLanguage.allCases) { Text($0.title).tag($0) } } }
+                Section("Instance") { if let instance = store.selected { LabeledContent("URL", value: instance.baseURL.absoluteString); Button("Remove Instance", role: .destructive) { store.remove(instance) } } }
+            }.navigationTitle("More")
+        }
+    }
 }
 
 struct SettingsCatalogView: View {

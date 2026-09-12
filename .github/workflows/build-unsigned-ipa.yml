@@ -1,0 +1,28 @@
+name: Build unsigned IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build unsigned archive
+        run: xcodebuild -project ChatAPIAdmin.xcodeproj -scheme ChatAPIAdmin -configuration Release -sdk iphoneos -archivePath "$PWD/build/ChatAPIAdmin.xcarchive" archive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+      - name: Package IPA and symbols
+        run: |
+          mkdir -p build/Payload
+          cp -R build/ChatAPIAdmin.xcarchive/Products/Applications/ChatAPIAdmin.app build/Payload/
+          ditto -c -k --sequesterRsrc --keepParent build/Payload build/ChatAPIAdmin-unsigned.ipa
+          ditto -c -k --sequesterRsrc --keepParent build/ChatAPIAdmin.xcarchive/dSYMs build/ChatAPIAdmin.dSYM.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChatAPIAdmin-unsigned
+          path: |
+            build/ChatAPIAdmin-unsigned.ipa
+            build/ChatAPIAdmin.dSYM.zip

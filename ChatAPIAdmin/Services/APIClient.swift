@@ -46,13 +46,12 @@ actor APIClient {
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if let body { request.httpBody = try JSONEncoder().encode(body); request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         do {
-            let (bytes, response) = try await session.bytes(for: request)
-            var data = Data()
-            data.reserveCapacity(Int(response.expectedContentLength > 0 ? min(response.expectedContentLength, 1_048_576) : 4_096))
-            for try await byte in bytes {
-                guard data.count < 1_048_576 else { throw APIError.server("The server response exceeded the 1 MiB safety limit.") }
-                data.append(byte)
+            let (fileURL, response) = try await session.download(for: request)
+            let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+            guard (attributes[.size] as? NSNumber)?.intValue ?? 0 < 1_048_576 else {
+                throw APIError.server("The server response exceeded the 1 MiB safety limit.")
             }
+            let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
             guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
             if http.statusCode == 401 { throw APIError.unauthorized }
             guard (200..<300).contains(http.statusCode) else { throw APIError.server(String(data: data, encoding: .utf8) ?? "Request failed (\(http.statusCode)).") }

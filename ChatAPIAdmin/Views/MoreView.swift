@@ -18,7 +18,7 @@ struct MoreView: View {
 struct SettingsCatalogView: View {
     @Environment(InstanceStore.self) private var store
     @State private var domains: [SettingsDomain] = []
-    var body: some View { List(domains) { domain in NavigationLink(domain.title) { SettingsDomainView(domain: domain) } }.navigationTitle("System Settings").task { guard let client = store.client() else { return }; domains = (try? await client.get("/api/admin/settings/catalog")) ?? [] } }
+    var body: some View { List(domains) { domain in NavigationLink(domain.title) { SettingsDomainView(domain: domain) } }.navigationTitle("System Settings").task { guard let client = store.client() else { return }; let response: SettingsCatalogResponse? = try? await client.get("/api/admin/settings/catalog"); domains = response?.catalog.groups ?? [] } }
 }
 
 private struct SettingsDomainView: View {

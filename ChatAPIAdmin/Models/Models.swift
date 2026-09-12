@@ -15,7 +15,8 @@ struct Capabilities: Codable, Hashable {
 }
 
 struct SettingsDomain: Codable, Identifiable, Hashable {
-    let id: String
+    let domain: String
+    var id: String { domain }
     let title: String
     let fields: [SettingsField]
 }
@@ -39,8 +40,12 @@ struct AdminUser: Codable, Identifiable, Hashable {
     let id: String
     let username: String
     let role: String
-    let disabled: Bool
+    let isActive: Bool
 }
+
+struct UserListResponse: Codable { let items: [AdminUser] }
+struct SettingsCatalogResponse: Codable { let catalog: SettingsCatalog }
+struct SettingsCatalog: Codable { let groups: [SettingsDomain] }
 
 struct ActivityItem: Codable, Identifiable, Hashable {
     let id: String

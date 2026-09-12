@@ -44,8 +44,8 @@
 		A00000000000000000000040 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000041, A00000000000000000000042); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		A0000000000000000000003B = {isa = XCBuildConfiguration; buildSettings = {}; name = Debug; };
 		A0000000000000000000003C = {isa = XCBuildConfiguration; buildSettings = {}; name = Release; };
-		A00000000000000000000041 = {isa = XCBuildConfiguration; buildSettings = { CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = ""; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = ChatAPIAdmin/Resources/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = com.ccat.chatapiadmin; SDKROOT = iphoneos; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
-		A00000000000000000000042 = {isa = XCBuildConfiguration; buildSettings = { CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = ""; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = ChatAPIAdmin/Resources/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = com.ccat.chatapiadmin; SDKROOT = iphoneos; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
+		A00000000000000000000041 = {isa = XCBuildConfiguration; buildSettings = { CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = ""; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = ChatAPIAdmin/Resources/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = com.ccat.chatapiadmin; PRODUCT_NAME = ChatAPIAdmin; SDKROOT = iphoneos; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
+		A00000000000000000000042 = {isa = XCBuildConfiguration; buildSettings = { CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = ""; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = ChatAPIAdmin/Resources/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = com.ccat.chatapiadmin; PRODUCT_NAME = ChatAPIAdmin; SDKROOT = iphoneos; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
 	};
 	rootObject = A00000000000000000000039;
 }

@@ -10,9 +10,9 @@ struct OverviewView: View {
             ScrollView {
                 if let overview {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                        MetricCard(title: "Health", value: overview.ok ? "Healthy" : "Unavailable", icon: "heart.text.square")
-                        MetricCard(title: "Mode", value: overview.mode, icon: "server.rack")
-                        MetricCard(title: "Database", value: overview.driver, icon: "cylinder")
+                        MetricCard(title: localized("Health", "健康状态"), value: overview.ok ? localized("Healthy", "正常") : localized("Unavailable", "不可用"), icon: "heart.text.square")
+                        MetricCard(title: localized("Mode", "运行模式"), value: overview.mode, icon: "server.rack")
+                        MetricCard(title: localized("Database", "数据库"), value: overview.driver, icon: "cylinder")
                     }.padding()
                 } else { ProgressView().padding(.top, 80) }
             }

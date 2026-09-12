@@ -27,10 +27,10 @@ private struct LockView: View {
 struct AdminTabView: View {
     var body: some View {
         TabView {
-            OverviewView().tabItem { Label("Overview", systemImage: "rectangle.3.group.fill") }
-            ActivityView().tabItem { Label("Activity", systemImage: "bolt.horizontal.circle.fill") }
-            UsersView().tabItem { Label("Users", systemImage: "person.2.fill") }
-            MoreView().tabItem { Label("More", systemImage: "ellipsis.circle.fill") }
+            OverviewView().tabItem { Label(localized("Overview", "概览"), systemImage: "rectangle.3.group.fill") }
+            ActivityView().tabItem { Label(localized("Activity", "活动"), systemImage: "bolt.horizontal.circle.fill") }
+            UsersView().tabItem { Label(localized("Users", "用户"), systemImage: "person.2.fill") }
+            MoreView().tabItem { Label(localized("More", "更多"), systemImage: "ellipsis.circle.fill") }
         }
     }
 }

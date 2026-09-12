@@ -12,3 +12,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     var language: AppLanguage { didSet { UserDefaults.standard.set(language.rawValue, forKey: "app-language") } }
     init() { language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: "app-language") ?? "system") ?? .system }
 }
+
+func localized(_ english: String, _ chinese: String) -> String {
+    AppLanguage(rawValue: UserDefaults.standard.string(forKey: "app-language") ?? "system") == .chinese ? chinese : english
+}

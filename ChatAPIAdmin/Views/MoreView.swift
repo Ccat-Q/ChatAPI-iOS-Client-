@@ -26,6 +26,7 @@ struct SettingsCatalogView: View {
 private struct SettingsDomainView: View {
     let domain: SettingsDomain
     @Environment(InstanceStore.self) private var store
+    @Environment(AppLock.self) private var lock
     @State private var document: SettingsDocument?
     @State private var values: [String: JSONValue] = [:]
     @State private var error: String?
@@ -36,7 +37,13 @@ private struct SettingsDomainView: View {
     @ViewBuilder private func editor(for field: SettingsField) -> some View { if field.type == "boolean" { Toggle(field.title, isOn: Binding(get: { if case .bool(let value) = values[field.key] { return value }; return false }, set: { values[field.key] = .bool($0) })) } else if let options = field.options, !options.isEmpty { Picker(field.title, selection: Binding(get: { values[field.key]?.displayValue ?? options[0] }, set: { values[field.key] = .string($0) })) { ForEach(options, id: \.self) { Text($0).tag($0) } } } else { TextField(field.title, text: Binding(get: { values[field.key]?.displayValue ?? "" }, set: { values[field.key] = parsed($0, type: field.type) })).textInputAutocapitalization(.never).keyboardType(field.type == "integer" || field.type == "number" ? .decimalPad : .default) } }
     private func parsed(_ value: String, type: String) -> JSONValue { (type == "integer" || type == "number") && Double(value) != nil ? .number(Double(value)!) : .string(value) }
     private func load() async { guard let client = store.client() else { return }; do { let response: SettingsDocumentResponse = try await client.get("/api/admin/settings/\(domain.domain)"); document = response.document; values = response.document.values } catch { self.error = error.localizedDescription } }
-    private func save() async { guard let client = store.client() else { return }; saving = true; defer { saving = false }; do { let _: SuccessResponse = try await client.patch("/api/admin/settings/\(domain.domain)", body: SettingsPatchInput(values: values)) } catch { self.error = error.localizedDescription } }
+    private func save() async {
+        if isRisky, !await lock.authenticate(reason: localized("Authenticate to apply sensitive server settings", "验证身份以应用敏感服务器设置")) { return }
+        guard let client = store.client() else { return }
+        saving = true
+        defer { saving = false }
+        do { let _: SuccessResponse = try await client.patch("/api/admin/settings/\(domain.domain)", body: SettingsPatchInput(values: values)) } catch { self.error = error.localizedDescription }
+    }
 }
 
 struct BarkSettingsView: View {

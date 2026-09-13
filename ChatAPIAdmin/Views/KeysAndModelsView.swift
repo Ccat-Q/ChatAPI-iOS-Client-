@@ -1,0 +1,36 @@
+import SwiftUI
+
+struct KeysAndModelsView: View {
+    @Environment(InstanceStore.self) private var store
+    @Environment(AppLock.self) private var lock
+    @State private var appKeys: [APIKey] = []; @State private var modelKeys: [ModelKey] = []; @State private var models: [VirtualModel] = []
+    @State private var sheet: KeySheet?; @State private var secret: String?; @State private var error: String?
+    enum KeySheet: Identifiable { case app, model, virtual; var id: Int { switch self { case .app: 1; case .model: 2; case .virtual: 3 } } }
+
+    var body: some View {
+        List {
+            Section(localized("Application API Keys", "应用 API 密钥")) { ForEach(appKeys) { key in keyRow(key.name, subtitle: key.keyPrefix) { await revealApp(key) } }.onDelete { offsets in Task { await revokeApp(offsets) } }; Button(localized("Create Application Key", "创建应用密钥")) { sheet = .app } }
+            Section(localized("Model API Keys", "模型 API 密钥")) { ForEach(modelKeys) { key in keyRow(key.name, subtitle: key.keyPrefix) { await revealModel(key) } }.onDelete { offsets in Task { await revokeModel(offsets) } }; Button(localized("Add Model Key", "添加模型密钥")) { sheet = .model } }
+            Section(localized("Virtual Models", "虚拟模型")) { ForEach(models) { Text($0.name) }.onDelete { offsets in Task { await deleteModel(offsets) } }; Button(localized("Create Virtual Model", "创建虚拟模型")) { sheet = .virtual } }
+        }.navigationTitle(localized("Keys & Models", "密钥与模型")).task { await load() }.refreshable { await load() }
+        .sheet(item: $sheet) { sheet in KeyCreateSheet(kind: sheet) { await load() } }
+        .alert(localized("Secret Key", "密钥明文"), isPresented: Binding(get: { secret != nil }, set: { if !$0 { secret = nil } })) { Button(localized("OK", "好"), role: .cancel) { secret = nil } } message: { Text(secret ?? "") }
+        .alert(localized("Key Management Failed", "密钥管理失败"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button(localized("OK", "好"), role: .cancel) {} } message: { Text(error ?? "") }
+    }
+    private func keyRow(_ title: String, subtitle: String, reveal: @escaping () async -> Void) -> some View { HStack { VStack(alignment: .leading) { Text(title); Text(subtitle).font(.caption).foregroundStyle(.secondary) }; Spacer(); Button(localized("Reveal", "显示")) { Task { await reveal() } }.buttonStyle(.borderless) } }
+    private func load() async { guard let client = store.client() else { return }; do { async let apps: APIKeyListResponse = client.get("/api/user/app-keys"); async let keys: ModelKeyListResponse = client.get("/api/user/model-keys"); async let virtual: VirtualModelListResponse = client.get("/api/user/virtual-models"); let values = try await (apps, keys, virtual); appKeys = values.0.items; modelKeys = values.1.items; models = values.2.items } catch { self.error = error.localizedDescription } }
+    private func revealApp(_ key: APIKey) async { guard await lock.authenticate(reason: localized("Authenticate to reveal an API key", "验证身份以显示 API 密钥")), let client = store.client() else { return }; do { let result: APIKeyRevealResponse = try await client.get("/api/user/app-keys/\(key.id)/secret"); secret = result.apiKey } catch { self.error = error.localizedDescription } }
+    private func revealModel(_ key: ModelKey) async { guard await lock.authenticate(reason: localized("Authenticate to reveal a model key", "验证身份以显示模型密钥")), let client = store.client() else { return }; do { let result: APIKeyRevealResponse = try await client.get("/api/user/model-keys/\(key.id)/secret"); secret = result.apiKey } catch { self.error = error.localizedDescription } }
+    private func revokeApp(_ offsets: IndexSet) async { guard await lock.authenticate(reason: localized("Authenticate to revoke API keys", "验证身份以撤销 API 密钥")), let client = store.client() else { return }; for index in offsets { do { let _: SuccessResponse = try await client.delete("/api/user/app-keys/\(appKeys[index].id)") } catch { self.error = error.localizedDescription; return } }; await load() }
+    private func revokeModel(_ offsets: IndexSet) async { guard await lock.authenticate(reason: localized("Authenticate to revoke model keys", "验证身份以撤销模型密钥")), let client = store.client() else { return }; for index in offsets { do { let _: SuccessResponse = try await client.delete("/api/user/model-keys/\(modelKeys[index].id)") } catch { self.error = error.localizedDescription; return } }; await load() }
+    private func deleteModel(_ offsets: IndexSet) async { guard await lock.authenticate(reason: localized("Authenticate to delete virtual models", "验证身份以删除虚拟模型")), let client = store.client() else { return }; for index in offsets { do { let _: SuccessResponse = try await client.delete("/api/user/virtual-models/\(models[index].id)") } catch { self.error = error.localizedDescription; return } }; await load() }
+}
+
+private struct KeyCreateSheet: View {
+    let kind: KeysAndModelsView.KeySheet; let completed: () async -> Void
+    @Environment(InstanceStore.self) private var store; @Environment(\.dismiss) private var dismiss
+    @State private var name = ""; @State private var rawKey = ""; @State private var secret: String?; @State private var error: String?
+    var body: some View { NavigationStack { Form { TextField(localized("Name", "名称"), text: $name); if kind == .model { SecureField(localized("Model key value", "模型密钥值"), text: $rawKey) }; if kind == .app { Text(localized("Application keys are created with conversation read/write scopes.", "应用密钥将创建为会话读写权限。" )).font(.caption) } }.navigationTitle(title).toolbar { ToolbarItem(placement: .confirmationAction) { Button(localized("Create", "创建")) { Task { await create() } }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (kind == .model && rawKey.isEmpty)) } }.alert(localized("New Secret", "新密钥"), isPresented: Binding(get: { secret != nil }, set: { if !$0 { secret = nil; dismiss() } })) { Button(localized("Done", "完成"), role: .cancel) { secret = nil; dismiss() } } message: { Text(secret ?? "") }.alert(localized("Creation Failed", "创建失败"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button(localized("OK", "好"), role: .cancel) {} } message: { Text(error ?? "") } } }
+    private var title: String { switch kind { case .app: localized("New Application Key", "新应用密钥"); case .model: localized("New Model Key", "新模型密钥"); case .virtual: localized("New Virtual Model", "新虚拟模型") } }
+    private func create() async { guard let client = store.client() else { return }; do { switch kind { case .app: let result: APIKeyCreateResponse = try await client.post("/api/user/app-keys", body: CreateAppKeyInput(name: name, scopes: ["conversations:read", "conversations:write"], resourceLimits: [:])); secret = result.apiKey.apiKey; case .model: let result: ModelKeyCreateResponse = try await client.post("/api/user/model-keys", body: CreateModelKeyInput(name: name, key: rawKey)); secret = result.modelKey.apiKey; case .virtual: let _: VirtualModelCreateResponse = try await client.post("/api/user/virtual-models", body: CreateVirtualModelInput(name: name)); await completed(); dismiss() } } catch { self.error = error.localizedDescription } }
+}

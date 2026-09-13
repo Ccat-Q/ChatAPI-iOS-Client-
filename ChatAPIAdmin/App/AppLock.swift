@@ -22,4 +22,15 @@ import Observation
     }
 
     func lock() { phase = .locked }
+
+    func authenticate(reason: String) async -> Bool {
+        let context = LAContext()
+        context.localizedFallbackTitle = localized("Use Device Passcode", "使用设备密码")
+        let policy: LAPolicy = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) ? .deviceOwnerAuthenticationWithBiometrics : .deviceOwnerAuthentication
+        return await withCheckedContinuation { continuation in
+            context.evaluatePolicy(policy, localizedReason: reason) { success, _ in
+                continuation.resume(returning: success)
+            }
+        }
+    }
 }

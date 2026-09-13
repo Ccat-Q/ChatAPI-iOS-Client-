@@ -7,7 +7,7 @@ struct MoreView: View {
         @Bindable var settings = settings
         NavigationStack {
             List {
-                Section(localized("Administration", "管理")) { NavigationLink(localized("System Settings", "系统设置")) { SettingsCatalogView() }; NavigationLink(localized("Automation Rules", "自动化规则")) { AutomationRulesView() }; NavigationLink(localized("Bark Notifications", "Bark 通知")) { BarkSettingsView() }; NavigationLink(localized("Audit Log", "审计日志")) { Text(localized("Audit records are available from the server audit log.", "审计记录可在服务器审计日志中查看。")).navigationTitle(localized("Audit Log", "审计日志")) } }
+                Section(localized("Administration", "管理")) { NavigationLink(localized("System Settings", "系统设置")) { SettingsCatalogView() }; NavigationLink(localized("Keys & Models", "密钥与模型")) { KeysAndModelsView() }; NavigationLink(localized("Automation Rules", "自动化规则")) { AutomationRulesView() }; NavigationLink(localized("Bark Notifications", "Bark 通知")) { BarkSettingsView() }; NavigationLink(localized("Audit Log", "审计日志")) { Text(localized("Audit records are available from the server audit log.", "审计记录可在服务器审计日志中查看。")).navigationTitle(localized("Audit Log", "审计日志")) } }
                 Section(localized("Language", "语言")) { Picker(localized("App Language", "应用语言"), selection: $settings.language) { ForEach(AppLanguage.allCases) { Text($0.title).tag($0) } } }
                 Section(localized("Instance", "实例")) { if let instance = store.selected { LabeledContent(localized("URL", "地址"), value: instance.baseURL.absoluteString); Button(localized("Remove Instance", "移除实例"), role: .destructive) { store.remove(instance) } } }
             }.navigationTitle(localized("More", "更多"))

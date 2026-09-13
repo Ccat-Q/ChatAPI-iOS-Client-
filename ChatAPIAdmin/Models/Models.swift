@@ -300,3 +300,21 @@ struct AutomationAction: Codable, Hashable {
     var kind: String; var text: String; var mode: String; var toolName: String; var toolCallID: String; var output: String
     enum CodingKeys: String, CodingKey { case kind, text, mode, output; case toolName = "tool_name"; case toolCallID = "tool_call_id" }
 }
+
+struct APIKey: Codable, Identifiable, Hashable {
+    let id: String; let name: String; let keyPrefix: String; let scopes: [String]?; let createdAt: Date
+    enum CodingKeys: String, CodingKey { case id, name, scopes; case keyPrefix = "key_prefix"; case createdAt = "created_at" }
+}
+struct APIKeyListResponse: Codable { let items: [APIKey] }
+struct APIKeyCreateResponse: Codable { let apiKey: APIKeySecret; enum CodingKeys: String, CodingKey { case apiKey = "api_key" } }
+struct APIKeySecret: Codable { let id: String; let name: String; let apiKey: String; enum CodingKeys: String, CodingKey { case id, name; case apiKey = "api_key" } }
+struct APIKeyRevealResponse: Codable { let apiKey: String; enum CodingKeys: String, CodingKey { case apiKey = "api_key" } }
+struct ModelKey: Codable, Identifiable, Hashable { let id: String; let name: String; let keyPrefix: String; let createdAt: Date; enum CodingKeys: String, CodingKey { case id, name; case keyPrefix = "key_prefix"; case createdAt = "created_at" } }
+struct ModelKeyListResponse: Codable { let items: [ModelKey] }
+struct ModelKeyCreateResponse: Codable { let modelKey: APIKeySecret; enum CodingKeys: String, CodingKey { case modelKey = "model_key" } }
+struct VirtualModel: Codable, Identifiable, Hashable { let id: String; let name: String; let createdAt: Date; enum CodingKeys: String, CodingKey { case id, name; case createdAt = "created_at" } }
+struct VirtualModelListResponse: Codable { let items: [VirtualModel] }
+struct VirtualModelCreateResponse: Codable { let item: VirtualModel }
+struct CreateAppKeyInput: Encodable { let name: String; let scopes: [String]; let resourceLimits: [String: String]; enum CodingKeys: String, CodingKey { case name, scopes; case resourceLimits = "resource_limits" } }
+struct CreateModelKeyInput: Encodable { let name: String; let key: String }
+struct CreateVirtualModelInput: Encodable { let name: String }

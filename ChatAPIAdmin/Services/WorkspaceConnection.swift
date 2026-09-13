@@ -15,7 +15,6 @@ import Observation
     var timelines: [String: [WorkspaceTimelineItem]] = [:]
 
     init(client: APIClient) { self.client = client }
-    deinit { receiver?.cancel(); reconnect?.cancel(); socket?.cancel(with: .goingAway, reason: nil) }
 
     func connect() {
         guard receiver == nil else { return }
@@ -55,7 +54,9 @@ import Observation
                 switch message { case .data(let value): data = value; case .string(let value): data = Data(value.utf8); @unknown default: continue }
                 handle(data)
             }
-        } catch where !Task.isCancelled { scheduleReconnect() }
+        } catch {
+            if !Task.isCancelled { scheduleReconnect() }
+        }
     }
 
     private func handle(_ data: Data) {

@@ -22,5 +22,23 @@ struct ActivityView: View {
 private struct ActivityDetailView: View {
     let item: ActivityItem
     @State private var showConfirm = false
-    var body: some View { Form { Section(localized("Details", "详情")) { LabeledContent(localized("Status", "状态"), value: item.kind); if let detail = item.detail { Text(detail) } }; if item.kind == "pending" { Section { Button(localized("Abort Request", "中止请求"), role: .destructive) { showConfirm = true } } }.navigationTitle(item.title).confirmationDialog(localized("Abort this request?", "中止此请求？"), isPresented: $showConfirm, titleVisibility: .visible) { Button(localized("Abort Request", "中止请求"), role: .destructive) {} } message: { Text(localized("This can interrupt an active conversation.", "这可能会中断正在进行的对话。")) } }
+    var body: some View {
+        Form {
+            Section(localized("Details", "详情")) {
+                LabeledContent(localized("Status", "状态"), value: item.kind)
+                if let detail = item.detail { Text(detail) }
+            }
+            if item.kind == "pending" {
+                Section {
+                    Button(localized("Abort Request", "中止请求"), role: .destructive) { showConfirm = true }
+                }
+            }
+        }
+        .navigationTitle(item.title)
+        .confirmationDialog(localized("Abort this request?", "中止此请求？"), isPresented: $showConfirm, titleVisibility: .visible) {
+            Button(localized("Abort Request", "中止请求"), role: .destructive) {}
+        } message: {
+            Text(localized("This can interrupt an active conversation.", "这可能会中断正在进行的对话。"))
+        }
+    }
 }

@@ -1,7 +1,7 @@
 import Foundation
 
 enum APIError: LocalizedError { case unauthorized, invalidResponse, server(String), transport(Error)
-    var errorDescription: String? { switch self { case .unauthorized: "Your device session has expired."; case .invalidResponse: "The server returned an invalid response."; case .server(let message): message; case .transport(let error): error.localizedDescription } }
+    var errorDescription: String? { switch self { case .unauthorized: localized("Your device session has expired.", "设备会话已过期。"); case .invalidResponse: localized("The server returned an invalid response.", "服务器返回了无效响应。"); case .server(let message): message; case .transport(let error): error.localizedDescription } }
 }
 
 actor APIClient {
@@ -49,7 +49,7 @@ actor APIClient {
             let (fileURL, response) = try await session.download(for: request)
             let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
             guard (attributes[.size] as? NSNumber)?.intValue ?? 0 < 1_048_576 else {
-                throw APIError.server("The server response exceeded the 1 MiB safety limit.")
+                throw APIError.server(localized("The server response exceeded the 1 MiB safety limit.", "服务器响应超过了 1 MiB 安全限制。"))
             }
             let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
             guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }

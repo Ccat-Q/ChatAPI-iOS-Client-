@@ -22,12 +22,20 @@ struct SettingsDomain: Codable, Identifiable, Hashable {
 }
 
 struct SettingsField: Codable, Identifiable, Hashable {
-    let id: String
+    let key: String
     let title: String
-    let kind: String
-    let required: Bool
+    let type: String
+    let description: String
+    let editable: Bool
     let sensitive: Bool
+    let restartRequired: Bool
     let options: [String]?
+
+    var id: String { key }
+
+    enum CodingKeys: String, CodingKey {
+        case key, title, type, description, editable, sensitive, restartRequired, options = "enum"
+    }
 }
 
 struct Overview: Codable, Hashable {
@@ -47,13 +55,68 @@ struct UserListResponse: Codable { let items: [AdminUser] }
 struct SettingsCatalogResponse: Codable { let catalog: SettingsCatalog }
 struct SettingsCatalog: Codable { let groups: [SettingsDomain] }
 
-struct ActivityItem: Codable, Identifiable, Hashable {
-    let id: String
-    let kind: String
+struct SettingsDocument: Codable {
+    let domain: String
     let title: String
-    let timestamp: Date
-    let detail: String?
+    let values: [String: JSONValue]
+    let fields: [SettingsField]
 }
+
+struct SettingsDocumentResponse: Codable { let document: SettingsDocument }
+struct SuccessResponse: Codable { let ok: Bool }
+
+struct SettingsPatchInput: Encodable { let values: [String: JSONValue] }
+
+enum JSONValue: Codable, Hashable {
+    case string(String), number(Double), bool(Bool), null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() { self = .null }
+        else if let value = try? container.decode(Bool.self) { self = .bool(value) }
+        else if let value = try? container.decode(Double.self) { self = .number(value) }
+        else { self = .string(try container.decode(String.self)) }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value): try container.encode(value)
+        case .number(let value): try container.encode(value)
+        case .bool(let value): try container.encode(value)
+        case .null: try container.encodeNil()
+        }
+    }
+
+    var displayValue: String {
+        switch self {
+        case .string(let value): value
+        case .number(let value): value.rounded() == value ? String(Int(value)) : String(value)
+        case .bool(let value): value ? "true" : "false"
+        case .null: ""
+        }
+    }
+}
+
+struct ActivityItem: Codable, Identifiable, Hashable {
+    let requestID: String
+    let status: String
+    let model: String
+    let requestPath: String
+    let createdAt: Date
+
+    var id: String { requestID }
+    var title: String { model.isEmpty ? requestPath : model }
+    var kind: String { status }
+    var timestamp: Date { createdAt }
+    var detail: String? { requestPath.isEmpty ? nil : requestPath }
+
+    enum CodingKeys: String, CodingKey {
+        case requestID = "request_id", status, model, requestPath = "request_path", createdAt = "created_at"
+    }
+}
+
+struct ActivityListResponse: Codable { let items: [ActivityItem] }
 
 struct BarkTarget: Codable, Hashable {
     var key: String

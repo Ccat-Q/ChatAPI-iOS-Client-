@@ -8,15 +8,15 @@ import Observation
 
     func unlock() {
         let context = LAContext()
-        context.localizedFallbackTitle = "Use Device Passcode"
+        context.localizedFallbackTitle = localized("Use Device Passcode", "使用设备密码")
         var error: NSError?
         if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
-            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Unlock ChatAPI Admin") { [weak self] success, _ in
+            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: localized("Unlock ChatAPI Admin", "解锁 ChatAPI 管理")) { [weak self] success, _ in
                 if success { Task { @MainActor [weak self] in self?.phase = .unlocked } }
             }
             return
         }
-        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Unlock ChatAPI Admin") { [weak self] success, _ in
+        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: localized("Unlock ChatAPI Admin", "解锁 ChatAPI 管理")) { [weak self] success, _ in
             if success { Task { @MainActor [weak self] in self?.phase = .unlocked } }
         }
     }

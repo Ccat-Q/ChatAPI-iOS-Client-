@@ -18,7 +18,7 @@ struct RootView: View {
 private struct LockView: View {
     @Environment(AppLock.self) private var lock
     var body: some View {
-        ContentUnavailableView("ChatAPI Admin Locked", systemImage: "lock.fill", description: Text("Authenticate to manage your instances."))
+        ContentUnavailableView(localized("ChatAPI Admin Locked", "ChatAPI 管理已锁定"), systemImage: "lock.fill", description: Text(localized("Authenticate to manage your instances.", "验证身份以管理实例。")))
             .glassEffect()
             .onTapGesture { lock.unlock() }
     }

@@ -5,7 +5,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     case system, english, chinese
     var id: String { rawValue }
     var localeIdentifier: String? { switch self { case .system: nil; case .english: "en"; case .chinese: "zh-Hans" } }
-    var title: String { switch self { case .system: String(localized: "System Default"); case .english: "English"; case .chinese: "简体中文" } }
+    var title: String { switch self { case .system: localized("System Default", "跟随系统"); case .english: "English"; case .chinese: "简体中文" } }
 }
 
 @MainActor @Observable final class AppSettings {

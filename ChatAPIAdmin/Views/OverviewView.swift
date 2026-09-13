@@ -16,10 +16,10 @@ struct OverviewView: View {
                     }.padding()
                 } else { ProgressView().padding(.top, 80) }
             }
-            .navigationTitle(store.selected?.name ?? "Overview")
+            .navigationTitle(store.selected?.name ?? localized("Overview", "概览"))
             .task { await load() }
             .refreshable { await load() }
-            .alert("Could Not Load Overview", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK", role: .cancel) {} } message: { Text(error ?? "") }
+            .alert(localized("Could Not Load Overview", "无法加载概览"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button(localized("OK", "好"), role: .cancel) {} } message: { Text(error ?? "") }
         }
     }
     private func load() async { guard let client = store.client() else { return }; do { overview = try await client.get("/api/health") } catch { self.error = error.localizedDescription } }

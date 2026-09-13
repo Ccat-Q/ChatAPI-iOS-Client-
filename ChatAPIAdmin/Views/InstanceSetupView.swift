@@ -10,21 +10,21 @@ struct InstanceSetupView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Add Instance") {
-                    TextField("Name", text: $name)
-                    TextField("HTTPS URL", text: $address).textInputAutocapitalization(.never).keyboardType(.URL)
-                    Toggle("Allow HTTP for development", isOn: $allowsHTTP)
+                Section(localized("Add Instance", "添加实例")) {
+                    TextField(localized("Name", "名称"), text: $name)
+                    TextField(localized("HTTPS URL", "HTTPS 地址"), text: $address).textInputAutocapitalization(.never).keyboardType(.URL)
+                    Toggle(localized("Allow HTTP for development", "允许开发环境使用 HTTP"), isOn: $allowsHTTP)
                 }
-                Section { Button("Save Instance") { save() }.frame(maxWidth: .infinity) }
-                footer: { Text("QR import can populate this form with a non-secret instance URL.") }
+                Section { Button(localized("Save Instance", "保存实例")) { save() }.frame(maxWidth: .infinity) }
+                footer: { Text(localized("QR import can populate this form with a non-secret instance URL.", "二维码导入可填入不含密钥的实例地址。")) }
             }
-            .navigationTitle("ChatAPI Admin")
-            .alert("Cannot Add Instance", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK", role: .cancel) {} } message: { Text(error ?? "") }
+            .navigationTitle(localized("ChatAPI Admin", "ChatAPI 管理"))
+            .alert(localized("Cannot Add Instance", "无法添加实例"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button(localized("OK", "好"), role: .cancel) {} } message: { Text(error ?? "") }
         }
     }
 
     private func save() {
-        guard let url = URL(string: address), !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { error = "Enter an instance name and valid URL."; return }
+        guard let url = URL(string: address), !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { error = localized("Enter an instance name and valid URL.", "请输入实例名称和有效地址。"); return }
         do { try store.add(name: name, url: url, allowsInsecureHTTP: allowsHTTP) } catch { self.error = error.localizedDescription }
     }
 }

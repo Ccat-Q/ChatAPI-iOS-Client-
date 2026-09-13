@@ -1,6 +1,8 @@
 # ChatAPI iOS Client
 
-Native iOS 26+ administrator console for self-hosted ChatAPI instances.
+Native iOS 26+ operator workspace and administration client for self-hosted ChatAPI instances.
+
+ChatAPI exposes a human operator through OpenAI Responses, Chat Completions, and Anthropic Messages compatible APIs. AI clients create conversations; an operator uses this app to inspect the conversation, provide the assistant response, and complete it. The app also provides request inspection, user administration, and server settings for administrators.
 
 ## Build
 

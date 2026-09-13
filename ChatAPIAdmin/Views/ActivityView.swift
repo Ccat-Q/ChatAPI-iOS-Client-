@@ -8,12 +8,12 @@ struct ActivityView: View {
     var body: some View {
         NavigationStack {
             List(items) { item in
-                NavigationLink { ActivityDetailView(item: item) } label: { VStack(alignment: .leading) { Label(item.title, systemImage: item.kind == "security" ? "exclamationmark.shield.fill" : "bolt.fill"); if let detail = item.detail { Text(detail).font(.caption).foregroundStyle(.secondary) }; Text(item.timestamp, style: .relative).font(.caption2).foregroundStyle(.tertiary) } }
+                NavigationLink { ActivityDetailView(item: item) } label: { VStack(alignment: .leading) { Label(item.title, systemImage: "arrow.trianglehead.2.clockwise"); if let detail = item.detail { Text(detail).font(.caption).foregroundStyle(.secondary) }; if let timestamp = item.createdAt { Text(timestamp, style: .relative).font(.caption2).foregroundStyle(.tertiary) } } }
             }
             .overlay { if items.isEmpty { ContentUnavailableView(localized("No Activity", "暂无活动"), systemImage: "bolt.horizontal.circle") } }
-            .navigationTitle(localized("Activity", "活动"))
+            .navigationTitle(localized("Requests", "请求记录"))
             .task { await load() }.refreshable { await load() }
-            .alert(localized("Could Not Load Activity", "无法加载活动记录"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button(localized("OK", "好"), role: .cancel) {} } message: { Text(error ?? "") }
+            .alert(localized("Could Not Load Requests", "无法加载请求记录"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button(localized("OK", "好"), role: .cancel) {} } message: { Text(error ?? "") }
         }
     }
     private func load() async { guard let client = store.client() else { return }; do { let response: ActivityListResponse = try await client.get("/api/admin/requests"); items = response.items } catch { self.error = error.localizedDescription } }
@@ -47,5 +47,5 @@ private struct ActivityDetailView: View {
             Button(localized("OK", "好"), role: .cancel) {}
         } message: { Text(error ?? "") }
     }
-    private func abort() async { guard let client = store.client(), !item.conversationID.isEmpty else { return }; do { let _: SuccessResponse = try await client.post("/api/admin/conversations/\(item.conversationID)/abort", body: EmptyRequest()); dismiss() } catch { self.error = error.localizedDescription } }
+    private func abort() async { guard let client = store.client(), let conversationID = item.conversationID, !conversationID.isEmpty else { return }; do { let _: SuccessResponse = try await client.post("/api/admin/conversations/\(conversationID)/abort", body: EmptyRequest()); dismiss() } catch { self.error = error.localizedDescription } }
 }

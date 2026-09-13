@@ -44,6 +44,27 @@ struct Overview: Codable, Hashable {
     let driver: String
 }
 
+struct AdminConversation: Codable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let lastUserText: String
+    let lastMessagePreview: String
+    let messageCount: Int
+    let updatedAt: Date
+}
+
+struct ConversationListResponse: Codable { let items: [AdminConversation] }
+
+struct ConversationMessage: Codable, Identifiable, Hashable {
+    let id: String
+    let role: String
+    let content: String
+    let createdAt: Date
+}
+
+struct ConversationMessageListResponse: Codable { let items: [ConversationMessage] }
+struct CompleteConversationInput: Encodable { let text: String; let mode = "assistant_message" }
+
 struct AdminUser: Codable, Identifiable, Hashable {
     let id: String
     let username: String
@@ -101,17 +122,16 @@ enum JSONValue: Codable, Hashable {
 
 struct ActivityItem: Codable, Identifiable, Hashable {
     let requestID: String
-    let status: String
-    let model: String
-    let requestPath: String
-    let conversationID: String
-    let createdAt: Date
+    let status: String?
+    let model: String?
+    let requestPath: String?
+    let conversationID: String?
+    let createdAt: Date?
 
     var id: String { requestID }
-    var title: String { model.isEmpty ? requestPath : model }
-    var kind: String { status }
-    var timestamp: Date { createdAt }
-    var detail: String? { requestPath.isEmpty ? nil : requestPath }
+    var title: String { let model = model ?? ""; let path = requestPath ?? ""; return model.isEmpty ? (path.isEmpty ? requestID : path) : model }
+    var kind: String { status ?? "unknown" }
+    var detail: String? { let path = requestPath ?? ""; return path.isEmpty ? nil : path }
 
     enum CodingKeys: String, CodingKey {
         case requestID = "request_id", status, model, requestPath = "request_path", conversationID = "conversation_id", createdAt = "created_at"

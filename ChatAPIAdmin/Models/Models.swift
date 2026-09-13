@@ -204,3 +204,12 @@ struct BarkTarget: Codable, Hashable {
     var security: Bool
     var includeFullDetail: Bool
 }
+
+struct BarkSettings: Codable, Hashable {
+    var deviceKey: String?
+    var enabled: Bool
+    var health: Bool
+    var pendingWork: Bool
+    var security: Bool
+    var configured: Bool?
+}

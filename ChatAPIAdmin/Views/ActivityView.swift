@@ -21,7 +21,10 @@ struct ActivityView: View {
 
 private struct ActivityDetailView: View {
     let item: ActivityItem
+    @Environment(InstanceStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
     @State private var showConfirm = false
+    @State private var error: String?
     var body: some View {
         Form {
             Section(localized("Details", "详情")) {
@@ -36,9 +39,13 @@ private struct ActivityDetailView: View {
         }
         .navigationTitle(item.title)
         .confirmationDialog(localized("Abort this request?", "中止此请求？"), isPresented: $showConfirm, titleVisibility: .visible) {
-            Button(localized("Abort Request", "中止请求"), role: .destructive) {}
+            Button(localized("Abort Request", "中止请求"), role: .destructive) { Task { await abort() } }
         } message: {
             Text(localized("This can interrupt an active conversation.", "这可能会中断正在进行的对话。"))
         }
+        .alert(localized("Could Not Abort Request", "无法中止请求"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button(localized("OK", "好"), role: .cancel) {}
+        } message: { Text(error ?? "") }
     }
+    private func abort() async { guard let client = store.client(), !item.conversationID.isEmpty else { return }; do { let _: SuccessResponse = try await client.post("/api/admin/conversations/\(item.conversationID)/abort", body: EmptyRequest()); dismiss() } catch { self.error = error.localizedDescription } }
 }

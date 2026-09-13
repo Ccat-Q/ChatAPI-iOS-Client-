@@ -64,6 +64,7 @@ struct SettingsDocument: Codable {
 
 struct SettingsDocumentResponse: Codable { let document: SettingsDocument }
 struct SuccessResponse: Codable { let ok: Bool }
+struct EmptyRequest: Encodable {}
 
 struct SettingsPatchInput: Encodable { let values: [String: JSONValue] }
 
@@ -103,6 +104,7 @@ struct ActivityItem: Codable, Identifiable, Hashable {
     let status: String
     let model: String
     let requestPath: String
+    let conversationID: String
     let createdAt: Date
 
     var id: String { requestID }
@@ -112,7 +114,7 @@ struct ActivityItem: Codable, Identifiable, Hashable {
     var detail: String? { requestPath.isEmpty ? nil : requestPath }
 
     enum CodingKeys: String, CodingKey {
-        case requestID = "request_id", status, model, requestPath = "request_path", createdAt = "created_at"
+        case requestID = "request_id", status, model, requestPath = "request_path", conversationID = "conversation_id", createdAt = "created_at"
     }
 }
 

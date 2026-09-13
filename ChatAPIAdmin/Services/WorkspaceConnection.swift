@@ -41,10 +41,24 @@ import Observation
     func subscribe(to conversation: WorkspaceConversation) { send(["type": "timeline.subscribe", "conversation_id": conversation.id]) }
 
     func complete(_ conversation: WorkspaceConversation, text: String) {
-        let command = WorkspaceCommand(commandID: UUID().uuidString, kind: "stream_complete", conversationID: conversation.id, requestID: conversation.requestID, text: text, mode: "assistant_message")
+        sendCommand(conversation, kind: "stream_complete", text: text, mode: "assistant_message")
+        clearDraft(for: conversation)
+    }
+
+    func sendToolCall(_ conversation: WorkspaceConversation, name: String, callID: String, arguments: String) {
+        sendCommand(conversation, kind: "tool_call", text: arguments, mode: "", toolName: name, toolCallID: callID)
+    }
+
+    func sendToolOutput(_ conversation: WorkspaceConversation, callID: String, output: String) {
+        sendCommand(conversation, kind: "tool_output", text: "", mode: "", toolCallID: callID, output: output)
+    }
+
+    func assetURL(_ value: String) async -> URL? { await client.absoluteURL(for: value) }
+
+    private func sendCommand(_ conversation: WorkspaceConversation, kind: String, text: String, mode: String, toolName: String = "", toolCallID: String = "", output: String = "") {
+        let command = WorkspaceCommand(commandID: UUID().uuidString, kind: kind, conversationID: conversation.id, requestID: conversation.requestID, text: text, mode: mode, toolName: toolName, toolCallID: toolCallID, output: output)
         guard let data = try? JSONEncoder().encode(WorkspaceCommandEnvelope(command: command)) else { return }
         send(data)
-        clearDraft(for: conversation)
     }
 
     func draft(for conversation: WorkspaceConversation) -> String {

@@ -105,11 +105,22 @@ struct WorkspaceTimelineMessage: Codable, Identifiable, Hashable {
     let role: String
     let content: String
     let createdAt: Date
+    let contentParts: [WorkspaceContentPart]?
 
     enum CodingKeys: String, CodingKey {
         case id, role, content
         case createdAt = "created_at"
+        case contentParts = "content_parts"
     }
+}
+
+struct WorkspaceContentPart: Codable, Identifiable, Hashable {
+    let type: String
+    let text: String?
+    let src: String?
+    let mediaType: String?
+    var id: String { "\(type)-\(src ?? text ?? UUID().uuidString)" }
+    enum CodingKeys: String, CodingKey { case type, text, src; case mediaType = "media_type" }
 }
 
 struct WorkspaceTimelineItem: Codable, Identifiable, Hashable {
@@ -158,6 +169,13 @@ struct WorkspaceCommand: Encodable {
     let requestID: String
     let text: String
     let mode: String
+    let toolName: String
+    let toolCallID: String
+    let output: String
+
+    enum CodingKeys: String, CodingKey {
+        case commandID = "command_id", kind, conversationID = "conversation_id", requestID = "request_id", text, mode, toolName = "tool_name", toolCallID = "tool_call_id", output
+    }
 }
 
 struct WorkspaceCommandEnvelope: Encodable { let type = "workspace.command"; let command: WorkspaceCommand }

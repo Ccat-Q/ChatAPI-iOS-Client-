@@ -39,6 +39,8 @@ actor APIClient {
         return request
     }
 
+    func absoluteURL(for pathOrURL: String) -> URL? { URL(string: pathOrURL, relativeTo: instance.baseURL) }
+
     func login(username: String, password: String) async throws {
         struct Credentials: Encodable { let username: String; let password: String }
         struct LoginResponse: Decodable { let ok: Bool }

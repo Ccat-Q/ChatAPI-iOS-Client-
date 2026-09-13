@@ -5,6 +5,7 @@ import Observation
     private(set) var instances: [Instance] = []
     var selectedID: UUID?
     private var authenticatedID: UUID?
+    private(set) var sessionUser: SessionUser?
     var selected: Instance? { instances.first { $0.id == selectedID } }
 
     func restore() {
@@ -23,8 +24,17 @@ import Observation
     func saveToken(_ token: String, for instance: Instance) throws { try KeychainStore.save(Data(token.utf8), account: "session.\(instance.id.uuidString)") }
     func hasSession(for instance: Instance) -> Bool { authenticatedID == instance.id || (try? KeychainStore.load(account: "session-marker.\(instance.id.uuidString)")) != nil }
     func markSession(for instance: Instance) throws { authenticatedID = instance.id; try KeychainStore.save(Data("cookie-session".utf8), account: "session-marker.\(instance.id.uuidString)") }
-    func clearSession(for instance: Instance) { KeychainStore.delete(account: "session.\(instance.id.uuidString)"); KeychainStore.delete(account: "session-marker.\(instance.id.uuidString)") }
+    func clearSession(for instance: Instance) { KeychainStore.delete(account: "session.\(instance.id.uuidString)"); KeychainStore.delete(account: "session-marker.\(instance.id.uuidString)"); authenticatedID = nil; sessionUser = nil }
     func client() -> APIClient? { guard let instance = selected else { return nil }; return APIClient(instance: instance, token: token(for: instance)) }
+    func refreshSession() async {
+        guard let instance = selected, hasSession(for: instance), let client = client() else { return }
+        do {
+            let session = try await client.sessionInfo()
+            guard session.authenticated, let user = session.user else { clearSession(for: instance); return }
+            authenticatedID = instance.id
+            sessionUser = user
+        } catch { clearSession(for: instance) }
+    }
     private func persist() throws { try KeychainStore.save(try JSONEncoder().encode(instances), account: "instances") }
 }
 

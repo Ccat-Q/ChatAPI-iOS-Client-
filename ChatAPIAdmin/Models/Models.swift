@@ -65,6 +65,63 @@ struct ConversationMessage: Codable, Identifiable, Hashable {
 struct ConversationMessageListResponse: Codable { let items: [ConversationMessage] }
 struct CompleteConversationInput: Encodable { let text: String; let mode = "assistant_message" }
 
+struct SessionResponse: Codable {
+    let authenticated: Bool
+    let user: SessionUser?
+}
+
+struct SessionUser: Codable, Hashable {
+    let id: String
+    let username: String
+    let role: String
+    var isAdministrator: Bool { role.lowercased() == "admin" || role.lowercased() == "superadmin" }
+}
+
+struct WorkspaceConversation: Codable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let lastUserText: String
+    let lastMessagePreview: String
+    let requestID: String
+    let status: String
+    let updatedAt: Date
+}
+
+struct WorkspaceSnapshot: Codable {
+    let type: String
+    let conversations: [WorkspaceConversation]
+}
+
+struct WorkspaceTimelineMessage: Codable, Identifiable, Hashable {
+    let id: String
+    let role: String
+    let content: String
+    let createdAt: Date
+}
+
+struct WorkspaceTimelineItem: Codable, Identifiable, Hashable {
+    let id: String
+    let kind: String
+    let message: WorkspaceTimelineMessage?
+}
+
+struct WorkspaceTimelineReset: Codable {
+    let type: String
+    let conversationID: String
+    let items: [WorkspaceTimelineItem]
+}
+
+struct WorkspaceCommand: Encodable {
+    let commandID: String
+    let kind: String
+    let conversationID: String
+    let requestID: String
+    let text: String
+    let mode: String
+}
+
+struct WorkspaceCommandEnvelope: Encodable { let type = "workspace.command"; let command: WorkspaceCommand }
+
 struct AdminUser: Codable, Identifiable, Hashable {
     let id: String
     let username: String

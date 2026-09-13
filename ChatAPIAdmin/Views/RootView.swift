@@ -25,12 +25,14 @@ private struct LockView: View {
 }
 
 struct AdminTabView: View {
+    @Environment(InstanceStore.self) private var store
     var body: some View {
         TabView {
             OverviewView().tabItem { Label(localized("Workspace", "工作台"), systemImage: "bubble.left.and.bubble.right.fill") }
             ActivityView().tabItem { Label(localized("Requests", "请求"), systemImage: "arrow.trianglehead.2.clockwise") }
-            UsersView().tabItem { Label(localized("Users", "用户"), systemImage: "person.2.fill") }
+            if store.sessionUser?.isAdministrator == true { UsersView().tabItem { Label(localized("Users", "用户"), systemImage: "person.2.fill") } }
             MoreView().tabItem { Label(localized("More", "更多"), systemImage: "ellipsis.circle.fill") }
         }
+        .task { await store.refreshSession() }
     }
 }

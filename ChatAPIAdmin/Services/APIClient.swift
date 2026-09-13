@@ -23,6 +23,22 @@ actor APIClient {
 
     func setToken(_ value: String?) { token = value }
 
+    func sessionInfo() async throws -> SessionResponse { try await get("/api/auth/session") }
+
+    func workspaceRequest() -> URLRequest? {
+        guard var components = URLComponents(url: instance.baseURL, resolvingAgainstBaseURL: true) else { return nil }
+        components.scheme = components.scheme == "https" ? "wss" : "ws"
+        components.path = "/api/ws"
+        guard let url = components.url else { return nil }
+        var request = URLRequest(url: url)
+        request.httpShouldHandleCookies = true
+        if let cookies = HTTPCookieStorage.shared.cookies(for: instance.baseURL) {
+            for (field, value) in HTTPCookie.requestHeaderFields(with: cookies) { request.setValue(value, forHTTPHeaderField: field) }
+        }
+        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        return request
+    }
+
     func login(username: String, password: String) async throws {
         struct Credentials: Encodable { let username: String; let password: String }
         struct LoginResponse: Decodable { let ok: Bool }

@@ -38,7 +38,9 @@ private struct SettingsDomainView: View {
     private func parsed(_ value: String, type: String) -> JSONValue { (type == "integer" || type == "number") && Double(value) != nil ? .number(Double(value)!) : .string(value) }
     private func load() async { guard let client = store.client() else { return }; do { let response: SettingsDocumentResponse = try await client.get("/api/admin/settings/\(domain.domain)"); document = response.document; values = response.document.values } catch { self.error = error.localizedDescription } }
     private func save() async {
-        if isRisky, !await lock.authenticate(reason: localized("Authenticate to apply sensitive server settings", "验证身份以应用敏感服务器设置")) { return }
+        if isRisky {
+            guard await lock.authenticate(reason: localized("Authenticate to apply sensitive server settings", "验证身份以应用敏感服务器设置")) else { return }
+        }
         guard let client = store.client() else { return }
         saving = true
         defer { saving = false }

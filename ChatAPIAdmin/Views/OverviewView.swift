@@ -114,8 +114,16 @@ private struct WorkspaceMediaView: View {
     @State private var url: URL?
     var body: some View {
         Group {
-            if mediaType?.hasPrefix("image/") == true, let imageURL = url { AsyncImage(url: imageURL) { image in image.resizable().scaledToFit() } placeholder: { ProgressView() } }.clipShape(RoundedRectangle(cornerRadius: 10))
-            else { Label(URL(string: source)?.lastPathComponent ?? localized("Media attachment", "媒体附件"), systemImage: "paperclip") }
+            if mediaType?.hasPrefix("image/") == true, let imageURL = url {
+                AsyncImage(url: imageURL) { image in
+                    image.resizable().scaledToFit()
+                } placeholder: {
+                    ProgressView()
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            } else {
+                Label(URL(string: source)?.lastPathComponent ?? localized("Media attachment", "媒体附件"), systemImage: "paperclip")
+            }
         }.task { url = await workspace.assetURL(source) }
     }
 }

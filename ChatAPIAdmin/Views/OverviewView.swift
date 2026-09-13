@@ -19,6 +19,9 @@ struct OverviewView: View {
                     }
                     .overlay { if workspace.conversations.isEmpty { ContentUnavailableView(localized("No conversations", "暂无会话"), systemImage: "bubble.left.and.bubble.right") } }
                     .safeAreaInset(edge: .bottom) { connectionStatus(workspace) }
+                    .alert(localized("Workspace action failed", "工作台操作失败"), isPresented: Binding(get: { workspace.lastError != nil }, set: { if !$0 { workspace.lastError = nil } })) {
+                        Button(localized("OK", "好"), role: .cancel) { workspace.lastError = nil }
+                    } message: { Text(workspace.lastError ?? "") }
                 } else { ProgressView() }
             }
             .navigationTitle(localized("Workspace", "工作台"))
@@ -70,6 +73,10 @@ private struct OperatorConversationView: View {
         }
         .navigationTitle(conversation.title.isEmpty ? localized("Conversation", "会话") : conversation.title)
         .navigationBarTitleDisplayMode(.inline)
-        .task { workspace.subscribe(to: conversation) }
+        .task {
+            reply = workspace.draft(for: conversation)
+            workspace.subscribe(to: conversation)
+        }
+        .onChange(of: reply) { _, value in workspace.saveDraft(value, for: conversation) }
     }
 }

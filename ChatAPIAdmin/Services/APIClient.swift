@@ -49,6 +49,7 @@ actor APIClient {
     func post<T: Decodable, Body: Encodable>(_ path: String, body: Body) async throws -> T { try await request(path, method: "POST", body: body) }
     func patch<T: Decodable, Body: Encodable>(_ path: String, body: Body) async throws -> T { try await request(path, method: "PATCH", body: body) }
     func put<T: Decodable, Body: Encodable>(_ path: String, body: Body) async throws -> T { try await request(path, method: "PUT", body: body) }
+    func delete<T: Decodable>(_ path: String) async throws -> T { try await request(path, method: "DELETE", body: EmptyBody()) }
 
     private func request<T: Decodable, Body: Encodable>(_ path: String, method: String, body: Body?) async throws -> T {
         guard let url = URL(string: path, relativeTo: instance.baseURL) else { throw APIError.invalidResponse }

@@ -13,6 +13,7 @@ import Observation
     var state: State = .disconnected
     var conversations: [WorkspaceConversation] = []
     var timelines: [String: [WorkspaceTimelineItem]] = [:]
+    var lastError: String?
 
     init(client: APIClient) { self.client = client }
 
@@ -43,6 +44,18 @@ import Observation
         let command = WorkspaceCommand(commandID: UUID().uuidString, kind: "stream_complete", conversationID: conversation.id, requestID: conversation.requestID, text: text, mode: "assistant_message")
         guard let data = try? JSONEncoder().encode(WorkspaceCommandEnvelope(command: command)) else { return }
         send(data)
+        clearDraft(for: conversation)
+    }
+
+    func draft(for conversation: WorkspaceConversation) -> String {
+        guard let data = try? KeychainStore.load(account: draftAccount(for: conversation)) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    func saveDraft(_ text: String, for conversation: WorkspaceConversation) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { clearDraft(for: conversation); return }
+        try? KeychainStore.save(Data(text.utf8), account: draftAccount(for: conversation))
     }
 
     private func receiveLoop() async {
@@ -66,8 +79,25 @@ import Observation
             if let snapshot = try? JSONDecoder.chatAPI.decode(WorkspaceSnapshot.self, from: data) { conversations = snapshot.conversations }
         case "timeline.reset":
             if let reset = try? JSONDecoder.chatAPI.decode(WorkspaceTimelineReset.self, from: data) { timelines[reset.conversationID] = reset.items }
+        case "timeline.append":
+            if let append = try? JSONDecoder.chatAPI.decode(WorkspaceTimelineAppend.self, from: data) {
+                timelines[append.conversationID, default: []].append(append.item)
+            }
+        case "conversation.upsert":
+            if let upsert = try? JSONDecoder.chatAPI.decode(WorkspaceConversationUpsert.self, from: data) {
+                if let index = conversations.firstIndex(where: { $0.id == upsert.conversation.id }) {
+                    conversations[index] = upsert.conversation
+                } else {
+                    conversations.insert(upsert.conversation, at: 0)
+                }
+                conversations.sort { $0.updatedAt > $1.updatedAt }
+            }
         case "conversation.remove":
             if let id = raw["conversation_id"] as? String { conversations.removeAll { $0.id == id } }
+        case "workspace.command_error":
+            if let failure = try? JSONDecoder.chatAPI.decode(WorkspaceCommandError.self, from: data) {
+                lastError = failure.message ?? failure.error ?? localized("The server rejected this action.", "服务器拒绝了该操作。")
+            }
         default: break
         }
     }
@@ -87,5 +117,13 @@ import Observation
             self?.reconnect = nil
             self?.connect()
         }
+    }
+
+    private func clearDraft(for conversation: WorkspaceConversation) {
+        KeychainStore.delete(account: draftAccount(for: conversation))
+    }
+
+    private func draftAccount(for conversation: WorkspaceConversation) -> String {
+        "workspace-draft.\(conversation.id)"
     }
 }

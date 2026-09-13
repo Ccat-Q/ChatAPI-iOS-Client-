@@ -85,6 +85,14 @@ struct WorkspaceConversation: Codable, Identifiable, Hashable {
     let requestID: String
     let status: String
     let updatedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, status
+        case lastUserText = "last_user_text"
+        case lastMessagePreview = "last_message_preview"
+        case requestID = "request_id"
+        case updatedAt = "updated_at"
+    }
 }
 
 struct WorkspaceSnapshot: Codable {
@@ -97,6 +105,11 @@ struct WorkspaceTimelineMessage: Codable, Identifiable, Hashable {
     let role: String
     let content: String
     let createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, role, content
+        case createdAt = "created_at"
+    }
 }
 
 struct WorkspaceTimelineItem: Codable, Identifiable, Hashable {
@@ -109,6 +122,33 @@ struct WorkspaceTimelineReset: Codable {
     let type: String
     let conversationID: String
     let items: [WorkspaceTimelineItem]
+
+    enum CodingKeys: String, CodingKey {
+        case type, items
+        case conversationID = "conversation_id"
+    }
+}
+
+struct WorkspaceConversationUpsert: Codable {
+    let type: String
+    let conversation: WorkspaceConversation
+}
+
+struct WorkspaceTimelineAppend: Codable {
+    let type: String
+    let conversationID: String
+    let item: WorkspaceTimelineItem
+
+    enum CodingKeys: String, CodingKey {
+        case type, item
+        case conversationID = "conversation_id"
+    }
+}
+
+struct WorkspaceCommandError: Codable {
+    let type: String
+    let message: String?
+    let error: String?
 }
 
 struct WorkspaceCommand: Encodable {
@@ -212,4 +252,51 @@ struct BarkSettings: Codable, Hashable {
     var pendingWork: Bool
     var security: Bool
     var configured: Bool?
+}
+
+struct AutomationRuleListResponse: Codable { let rules: [AutomationRule] }
+
+struct AutomationRuleSaveResponse: Codable { let rule: AutomationRule }
+
+struct AutomationRule: Codable, Identifiable, Hashable {
+    var schemaVersion: Int
+    var id: String
+    var name: String
+    var enabled: Bool
+    var priority: Int
+    var match: AutomationMatch
+    var playback: AutomationPlayback
+    var steps: [AutomationStep]
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, enabled, priority, match, playback, steps
+        case schemaVersion = "schema_version"
+    }
+
+    static var empty: AutomationRule {
+        AutomationRule(schemaVersion: 3, id: "", name: "", enabled: true, priority: 0,
+                       match: .init(pattern: "", modelPattern: "", modelKeyID: "", target: ""),
+                       playback: .init(mode: "once", initialDelayMS: 0, fixedIntervalMS: 0, loop: false, loopIntervalMS: 0),
+                       steps: [.init(id: UUID().uuidString, delayBeforeMS: 0, action: .init(kind: "stream_complete", text: "", mode: "assistant_message", toolName: "", toolCallID: "", output: ""))])
+    }
+}
+
+struct AutomationMatch: Codable, Hashable {
+    var pattern: String; var modelPattern: String; var modelKeyID: String; var target: String
+    enum CodingKeys: String, CodingKey { case pattern, target; case modelPattern = "model_pattern"; case modelKeyID = "model_key_id" }
+}
+
+struct AutomationPlayback: Codable, Hashable {
+    var mode: String; var initialDelayMS: Int; var fixedIntervalMS: Int; var loop: Bool; var loopIntervalMS: Int
+    enum CodingKeys: String, CodingKey { case mode, loop; case initialDelayMS = "initial_delay_ms"; case fixedIntervalMS = "fixed_interval_ms"; case loopIntervalMS = "loop_interval_ms" }
+}
+
+struct AutomationStep: Codable, Identifiable, Hashable {
+    var id: String; var delayBeforeMS: Int; var action: AutomationAction
+    enum CodingKeys: String, CodingKey { case id, action; case delayBeforeMS = "delay_before_ms" }
+}
+
+struct AutomationAction: Codable, Hashable {
+    var kind: String; var text: String; var mode: String; var toolName: String; var toolCallID: String; var output: String
+    enum CodingKeys: String, CodingKey { case kind, text, mode, output; case toolName = "tool_name"; case toolCallID = "tool_call_id" }
 }

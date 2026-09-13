@@ -1,3 +1,5 @@
-# ADR 0001: Maintain a separate compatibility server repository
+# ADR 0001: Keep mobile additions additive in the Compatibility fork
 
-The iOS client remains independent from the ChatAPI compatibility fork. The fork owns mobile authentication, capability negotiation, and Bark delivery. This keeps upstream merges and iOS releases independently reviewable.
+`Ccat-Q/ChatAPI-iOS-Client-Compatibility` is the deployable ChatAPI fork for mobile-only additions. It exposes `/api/mobile/v1` for Bark, device-facing capabilities, and private media assets while preserving upstream protocol and Web-console routes.
+
+The iOS repository contains no server secrets, Bark keys, R2 credentials, or server implementation.

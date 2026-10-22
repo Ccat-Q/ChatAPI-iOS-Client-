@@ -44,7 +44,8 @@
 - 首轮修复提交 `c6167611e6e6ae21e69c420fac96e2b000ee6646`：[Actions 39817263745](https://github.com/Ccat-Q/ChatAPI-iOS-Client-/actions/runs/39817263745) 全部成功，56 项断言通过，Release archive、IPA/dSYM 打包与上传完成。
 - 首轮环境：Xcode 26.6、iPhoneOS SDK 26.5、macos-26 runner。
 - 首轮发现的图标、重复 Sendable 和 headermap 告警已纳入收尾修复；系统的无 AppIntents 元数据提示不代表本应用缺失功能。
-- 收尾增加中止原因、有效 scopes、同源重定向和会话恢复/实例切换回归。最终提交的 Actions 结果另行补记，不能把首轮成功当作最终提交验证。
+- 最终代码提交 `16193d8e9948a73c6b1c602d4273a39322d20c52`：[Actions 39818656240](https://github.com/Ccat-Q/ChatAPI-iOS-Client-/actions/runs/39818656240) 全部成功，**69 项回归断言通过**，iOS Release archive、IPA/dSYM 打包与上传成功。后续提交仅补记本验证记录。
+- 最终代码构建的项目图标、Sendable 和 headermap 告警已消除；剩余无 AppIntents 依赖的系统元数据提示。产物为 [ChatAPIAdmin-unsigned](https://github.com/Ccat-Q/ChatAPI-iOS-Client-/actions/runs/39818656240/artifacts/12443481416)，包含未签名 IPA 与 dSYM。
 - 静态检查：`git diff --check`、shell 语法、Python 语法、JSON/plist 结构与文档相对链接。
 
 ## 限制与后续验收

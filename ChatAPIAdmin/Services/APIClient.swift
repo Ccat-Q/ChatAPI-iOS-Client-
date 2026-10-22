@@ -18,8 +18,10 @@ actor APIClient {
         configuration.httpShouldSetCookies = true
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        self.session = URLSession(configuration: configuration)
+        self.session = URLSession(configuration: configuration, delegate: APIRedirectPolicy(), delegateQueue: nil)
     }
+
+    deinit { session.invalidateAndCancel() }
 
     func sessionInfo() async throws -> SessionResponse {
         let response: SessionResponse = try await get("/api/auth/session")
@@ -93,7 +95,19 @@ actor APIClient {
     }
 }
 
-private struct EmptyBody: Encodable & Sendable, Sendable {}
+private struct EmptyBody: Encodable, Sendable {}
+
+private final class APIRedirectPolicy: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        guard let original = task.originalRequest?.url, let target = request.url,
+              target.scheme == original.scheme, target.host == original.host, target.port == original.port,
+              target.user == nil, target.password == nil else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
+    }
+}
 
 extension JSONDecoder {
     static var chatAPI: JSONDecoder {

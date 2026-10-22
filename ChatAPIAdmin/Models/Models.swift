@@ -236,7 +236,13 @@ struct AdminUser: Codable, Sendable, Identifiable, Hashable {
     enum CodingKeys: String, CodingKey { case id, username, role; case isActive = "is_active" }
 }
 
-struct UserListResponse: Codable, Sendable { let items: [AdminUser] }
+struct UserListResponse: Codable, Sendable {
+    let items: [AdminUser]
+    let page: Int?
+    let pageSize: Int?
+    let total: Int?
+    enum CodingKeys: String, CodingKey { case items, page, pageSize = "page_size", total }
+}
 struct SettingsCatalogResponse: Codable, Sendable { let catalog: SettingsCatalog }
 struct SettingsCatalog: Codable, Sendable { let groups: [SettingsDomain] }
 
@@ -257,6 +263,7 @@ struct SettingsPatchResult: Decodable, Sendable {
 }
 struct SuccessResponse: Codable, Sendable { let ok: Bool }
 struct EmptyRequest: Encodable, Sendable {}
+struct AbortConversationInput: Encodable, Sendable { let reason: String }
 
 struct SettingsPatchInput: Encodable, Sendable { let values: [String: JSONValue] }
 
@@ -402,6 +409,12 @@ struct VirtualModel: Codable, Sendable, Identifiable, Hashable { let id: String;
 struct VirtualModelListResponse: Codable, Sendable { let items: [VirtualModel] }
 struct VirtualModelCreateResponse: Codable, Sendable { let item: VirtualModel }
 struct CreateAppKeyInput: Encodable, Sendable { let name: String; let scopes: [String]; let resourceLimits: [String: String]; enum CodingKeys: String, CodingKey { case name, scopes; case resourceLimits = "resource_limits" } }
+
+extension CreateAppKeyInput {
+    static func operatorKey(name: String) -> CreateAppKeyInput {
+        CreateAppKeyInput(name: name, scopes: ["conversations:read", "requests:respond"], resourceLimits: [:])
+    }
+}
 struct CreateModelKeyInput: Encodable, Sendable { let name: String; let key: String }
 struct CreateVirtualModelInput: Encodable, Sendable { let name: String }
 

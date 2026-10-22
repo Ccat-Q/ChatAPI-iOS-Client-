@@ -14,7 +14,14 @@ struct LoginView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(localized("Instance", "实例")) { LabeledContent(instance.name, value: instance.baseURL.host() ?? instance.baseURL.absoluteString) }
+                Section(localized("Instance", "实例")) {
+                    LabeledContent(instance.name, value: instance.baseURL.host() ?? instance.baseURL.absoluteString)
+                    if store.instances.count > 1 {
+                        Picker(localized("Current Instance", "当前实例"), selection: Binding(get: { store.selectedID }, set: { store.select($0) })) {
+                            ForEach(store.instances) { Text($0.name).tag(Optional($0.id)) }
+                        }.disabled(isLoading)
+                    }
+                }
                 Section(localized("Account Login", "账户登录")) {
                     TextField(localized("Username", "用户名"), text: $username).textInputAutocapitalization(.never).autocorrectionDisabled()
                     SecureField(localized("Password", "密码"), text: $password)

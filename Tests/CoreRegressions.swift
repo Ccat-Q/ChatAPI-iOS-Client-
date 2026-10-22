@@ -29,6 +29,7 @@ private actor UnauthorizedCounter {
         try settingsAndURLs()
         try keychainUpdates()
         try await networkAndWorkspace()
+        try await sessionRecovery()
         print("PASS: \(assertions) regression assertions")
     }
 
@@ -42,6 +43,8 @@ private actor UnauthorizedCounter {
         try check(history.requestID.isEmpty && history.status.isEmpty, "Historical summaries must tolerate omitted active request fields")
         let activity = try decode(ActivityListResponse.self, #"{"items":[{"request_id":"r1","conversation_id":"c1","request_path":"/v1/responses","created_at":"2026-10-22T12:00:00.1Z"}]}"#)
         try check(activity.items[0].conversationID == "c1", "Request identifiers must decode")
+        let users = try decode(UserListResponse.self, #"{"items":[{"id":"u1","username":"Operator","role":"user","is_active":true}],"page":2,"page_size":50,"total":70}"#)
+        try check(users.page == 2 && users.total == 70 && users.items[0].isActive, "User pagination and state must decode")
         let keys = try decode(APIKeyListResponse.self, #"{"api_keys":[{"id":"k1","name":"Key","created_at":"2026-10-22T12:00:00Z"}]}"#)
         try check(keys.items.count == 1 && keys.items[0].keyPrefix == nil, "API key list uses api_keys and optional prefixes")
         let secret = try decode(APIKeyCreateResponse.self, #"{"api_key":{"id":"k1","name":"Key","api_key":"secret"}}"#)
@@ -55,6 +58,7 @@ private actor UnauthorizedCounter {
         let restored = try decode(AutomationAction.self, String(decoding: JSONEncoder().encode(builtin), as: UTF8.self))
         try check(restored == builtin, "Advanced automation fields must survive round trips")
         try check(AutomationRule.empty.playback.mode == "recorded", "New rules must use supported playback modes")
+        try check(CreateAppKeyInput.operatorKey(name: "Operator").scopes == ["conversations:read", "requests:respond"], "Operator keys must grant scopes actually enforced by server routes")
         let value = try decode(JSONValue.self, #"{"nested":[1,true,null,{"value":"ok"}]}"#)
         try check(try decode(JSONValue.self, String(decoding: JSONEncoder().encode(value), as: UTF8.self)) == value, "Structured settings must round-trip")
         try check(!JSONValue.number(1e100).displayValue.isEmpty, "Large server numbers must not trap when displayed")
@@ -107,8 +111,14 @@ private actor UnauthorizedCounter {
         struct Headers: Decodable, Sendable { let origin: String; let authorization: String }
         let headers: Headers = try await client.get("/fixture/headers")
         try check(headers.origin == "http://127.0.0.1:\(port)" && headers.authorization.isEmpty, "REST must send Origin and must not send a fabricated bearer token")
+        let redirected: Headers = try await client.get("/fixture/redirect-local")
+        try check(redirected.origin == headers.origin, "Same-origin REST redirects must work")
+        do { let _: Headers = try await client.get("/fixture/redirect-external"); throw RegressionFailure(description: "Cross-origin redirect accepted") }
+        catch APIError.server { assertions += 1 }
         let empty: SuccessResponse = try await client.delete("/fixture/delete")
         try check(empty.ok, "204 DELETE must succeed without JSON")
+        let aborted: SuccessResponse = try await client.post("/api/admin/conversations/c1/abort", body: AbortConversationInput(reason: "Operator cancelled"))
+        try check(aborted.ok, "Abort must include the server-required reason")
         do { let _: SuccessResponse = try await client.get("/fixture/oversize"); throw RegressionFailure(description: "Oversized response accepted") }
         catch APIError.server { assertions += 1 }
         do { let _: SuccessResponse = try await client.get("/fixture/forbidden"); throw RegressionFailure(description: "403 accepted") }
@@ -150,5 +160,57 @@ private actor UnauthorizedCounter {
         workspace.connect(); workspace.disconnect()
         try await Task.sleep(for: .milliseconds(150))
         try check(workspace.state == .disconnected, "Cancelled connect must not resurrect a socket")
+    }
+
+    static func sessionRecovery() async throws {
+        // The runner is disposable, but restore shared storage even if an assertion fails.
+        let previousInstances = try KeychainStore.load(account: "instances")
+        let previousSelection = UserDefaults.standard.object(forKey: "selected-instance")
+        let store = InstanceStore()
+        var added: [Instance] = []
+        defer {
+            for instance in added { try? store.remove(instance) }
+            if let previousInstances { try? KeychainStore.save(previousInstances, account: "instances") }
+            else { KeychainStore.delete(account: "instances") }
+            UserDefaults.standard.set(previousSelection, forKey: "selected-instance")
+        }
+        let url = URL(string: "http://127.0.0.1:\(CommandLine.arguments[1])/")!
+        try store.add(name: "Fixture One", url: url, allowsInsecureHTTP: true)
+        let first = store.selected!
+        added.append(first)
+        try await store.signIn(username: "operator", password: "password", totp: "123456", to: first)
+        try check(store.hasSession(for: first) && store.sessionUser?.id == "u1", "Sign-in must establish a verified user")
+        store.invalidateValidation()
+        try check(!store.hasSession(for: first) && store.hasStoredSession(for: first), "A saved marker must not grant access")
+        struct Mode: Encodable, Sendable { let mode: String }
+        let client = APIClient(instance: first)
+        let _: SuccessResponse = try await client.post("/fixture/session-mode", body: Mode(mode: "server-error"))
+        await store.refreshSession()
+        try check(store.hasStoredSession(for: first) && !store.hasSession(for: first) && store.sessionError != nil, "Temporary server errors must preserve the marker and require retry")
+        let _: SuccessResponse = try await client.post("/fixture/session-mode", body: Mode(mode: "normal"))
+        await store.refreshSession()
+        try check(store.hasSession(for: first), "Retry must restore a valid Cookie session")
+        let _: SuccessResponse = try await client.post("/fixture/session-mode", body: Mode(mode: "expired"))
+        store.invalidateValidation()
+        await store.refreshSession()
+        try check(!store.hasStoredSession(for: first) && store.sessionUser == nil, "Explicitly unauthenticated sessions must clear the marker")
+        let _: SuccessResponse = try await client.post("/fixture/session-mode", body: Mode(mode: "normal"))
+        try await store.signIn(username: "operator", password: "password", totp: "123456", to: first)
+        try store.add(name: "Fixture Two", url: url, allowsInsecureHTTP: true)
+        let second = store.selected!
+        added.append(second)
+        store.select(first.id)
+        let _: SuccessResponse = try await client.post("/fixture/session-mode", body: Mode(mode: "slow"))
+        let refreshing = Task { @MainActor in await store.refreshSession() }
+        try await Task.sleep(for: .milliseconds(50))
+        store.select(second.id)
+        await refreshing.value
+        try check(store.selectedID == second.id && store.sessionUser == nil && !store.hasSession(for: second), "A stale session response must not authenticate a newly selected instance")
+        let restored = InstanceStore()
+        restored.restore()
+        try check(restored.selectedID == second.id && restored.sessionUser == nil, "Restore must preserve the selected instance without granting access")
+        restored.select(first.id)
+        try check(restored.hasStoredSession(for: first) && !restored.hasSession(for: first), "Restored markers must still require server validation")
+        let _: SuccessResponse = try await client.post("/fixture/session-mode", body: Mode(mode: "normal"))
     }
 }

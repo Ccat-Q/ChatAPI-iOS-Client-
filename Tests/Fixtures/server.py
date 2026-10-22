@@ -4,6 +4,7 @@ import hashlib
 import json
 import struct
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CONVERSATION = {"id": "c1", "title": "Fixture", "last_user_text": "Hello", "last_message_preview": "Hello", "request_id": "r1", "status": "waiting", "updated_at": "2026-10-22T12:00:00.123456789Z"}
@@ -35,7 +36,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/ws":
             return self.websocket()
         if self.path == "/api/auth/session":
+            mode = getattr(self.server, "session_mode", "normal")
+            if mode == "server-error":
+                return self.reply({"error": "temporary failure"}, 503)
+            if mode == "slow":
+                time.sleep(0.2)
             authenticated = "fixture_session=valid" in self.headers.get("Cookie", "")
+            if mode == "expired":
+                authenticated = False
             return self.reply({"authenticated": authenticated, "user": {"id": "u1", "username": "operator", "role": "admin"} if authenticated else None})
         if self.path == "/fixture/unauthorized":
             return self.reply({"error": "expired"}, 401)
@@ -45,14 +53,25 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({"text": "x" * 1_048_576})
         if self.path == "/fixture/headers":
             return self.reply({"origin": self.headers.get("Origin", ""), "authorization": self.headers.get("Authorization", "")})
+        if self.path in ["/fixture/redirect-local", "/fixture/redirect-external"]:
+            self.send_response(302)
+            self.send_header("Location", "/fixture/headers" if self.path.endswith("local") else "http://127.0.0.1:1/forbidden-destination")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         self.reply({"error": "unknown fixture"}, 404)
 
     def do_POST(self):
         body = json.loads(self.body() or b"{}")
+        if self.path == "/fixture/session-mode":
+            self.server.session_mode = body["mode"]
+            return self.reply({"ok": True})
         if self.path == "/api/auth/login":
             if body == {"username": "operator", "password": "password", "totp": "123456"}:
                 return self.reply({"ok": True}, cookie="fixture_session=valid; Path=/; HttpOnly")
             return self.reply({"ok": False})
+        if self.path == "/api/admin/conversations/c1/abort":
+            return self.reply({"ok": True}) if body.get("reason") else self.reply({"error": "reason is required"}, 400)
         self.reply({"error": "unknown fixture"}, 404)
 
     def do_DELETE(self):

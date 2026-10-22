@@ -19,7 +19,7 @@ struct RootView: View {
                     }
                 }.padding()
             }
-            else if let instance = store.selected, !store.hasSession(for: instance) { LoginView(instance: instance) }
+            else if let instance = store.selected, !store.hasSession(for: instance) { LoginView(instance: instance).id(instance.id) }
             else { AdminTabView().id(store.selectedID) }
         }
         .tint(.cyan)

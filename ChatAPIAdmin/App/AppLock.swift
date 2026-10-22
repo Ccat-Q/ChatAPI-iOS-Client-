@@ -5,32 +5,40 @@ import Observation
 @MainActor @Observable final class AppLock {
     enum Phase { case locked, unlocked }
     private(set) var phase: Phase = .locked
+    private var unlockContext: LAContext?
+    private var attemptID = UUID()
 
     func unlock() {
+        guard phase == .locked, unlockContext == nil else { return }
         let context = LAContext()
-        context.localizedFallbackTitle = localized("Use Device Passcode", "使用设备密码")
-        var error: NSError?
-        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
-            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: localized("Unlock ChatAPI Admin", "解锁 ChatAPI 管理")) { [weak self] success, _ in
-                if success { Task { @MainActor [weak self] in self?.phase = .unlocked } }
-            }
-            return
-        }
+        let attempt = UUID()
+        attemptID = attempt
+        unlockContext = context
         context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: localized("Unlock ChatAPI Admin", "解锁 ChatAPI 管理")) { [weak self] success, _ in
-            if success { Task { @MainActor [weak self] in self?.phase = .unlocked } }
+            Task { @MainActor [weak self] in
+                guard let self, self.attemptID == attempt else { return }
+                self.unlockContext = nil
+                if success { self.phase = .unlocked }
+            }
         }
     }
 
-    func lock() { phase = .locked }
+    func lock() {
+        attemptID = UUID()
+        unlockContext?.invalidate()
+        unlockContext = nil
+        phase = .locked
+    }
 
     func authenticate(reason: String) async -> Bool {
+        guard phase == .unlocked else { return false }
+        let attempt = attemptID
         let context = LAContext()
-        context.localizedFallbackTitle = localized("Use Device Passcode", "使用设备密码")
-        let policy: LAPolicy = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) ? .deviceOwnerAuthenticationWithBiometrics : .deviceOwnerAuthentication
-        return await withCheckedContinuation { continuation in
-            context.evaluatePolicy(policy, localizedReason: reason) { success, _ in
+        let success = await withCheckedContinuation { continuation in
+            context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, _ in
                 continuation.resume(returning: success)
             }
         }
+        return success && phase == .unlocked && attemptID == attempt
     }
 }

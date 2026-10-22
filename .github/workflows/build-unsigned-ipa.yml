@@ -3,15 +3,28 @@ name: Build unsigned IPA
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-26
+    timeout-minutes: 25
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - name: Verify Xcode and iOS SDK
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+          xcrun --sdk iphoneos --show-sdk-version | awk -F. '{ if ($1 < 26) exit 1 }'
+      - name: Run protocol and connection regressions
+        run: bash scripts/ci-regressions.sh
       - name: Restore Xcode build cache
         uses: actions/cache@v4
         with:
@@ -20,7 +33,7 @@ jobs:
           restore-keys: |
             xcode-${{ runner.os }}-
       - name: Build unsigned archive
-        run: xcodebuild -project ChatAPIAdmin.xcodeproj -scheme ChatAPIAdmin -configuration Release -sdk iphoneos -archivePath "$PWD/build/ChatAPIAdmin.xcarchive" archive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+        run: xcodebuild -project ChatAPIAdmin.xcodeproj -scheme ChatAPIAdmin -configuration Release -sdk iphoneos -archivePath "$PWD/build/ChatAPIAdmin.xcarchive" archive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEBUG_INFORMATION_FORMAT=dwarf-with-dsym
       - name: Package IPA and symbols
         run: |
           mkdir -p build/Payload

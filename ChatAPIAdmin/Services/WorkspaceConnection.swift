@@ -3,62 +3,145 @@ import Observation
 
 @MainActor @Observable final class WorkspaceConnection {
     enum State: Equatable { case disconnected, connecting, connected, failed(String) }
+    private struct PendingCommand {
+        let conversationID: String
+        let requestID: String
+        let continuation: CheckedContinuation<Bool, Never>
+        let timeout: Task<Void, Never>
+    }
 
     private let client: APIClient
+    private let instance: Instance
+    private let userID: String
     private var socket: URLSessionWebSocketTask?
     private var receiver: Task<Void, Never>?
     private var reconnect: Task<Void, Never>?
+    private var connectionID = UUID()
     private var retryCount = 0
+    private var subscription: String?
+    private var pending: [String: PendingCommand] = [:]
+    private var pageCommandID: String?
+    private var pageTimeout: Task<Void, Never>?
+    private var cursor: String?
+    private var removedIDs: Set<String> = []
 
-    var state: State = .disconnected
-    var conversations: [WorkspaceConversation] = []
-    var timelines: [String: [WorkspaceTimelineItem]] = [:]
+    private(set) var state: State = .disconnected
+    private(set) var conversations: [WorkspaceConversation] = []
+    private(set) var timelines: [String: [WorkspaceTimelineItem]] = [:]
+    private(set) var hasMore = false
+    private(set) var loadingMore = false
     var lastError: String?
 
-    init(client: APIClient) { self.client = client }
+    init(client: APIClient, instance: Instance, userID: String) {
+        self.client = client
+        self.instance = instance
+        self.userID = userID
+    }
 
     func connect() {
-        guard receiver == nil else { return }
+        guard receiver == nil, reconnect == nil else { return }
+        let id = UUID()
+        connectionID = id
         state = .connecting
-        Task {
-            guard let request = await client.workspaceRequest() else { state = .failed(localized("Invalid server address.", "服务器地址无效。")); return }
+        receiver = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let session = try await self.client.sessionInfo()
+                guard session.authenticated, session.user != nil else {
+                    self.disconnect()
+                    self.state = .failed(localized("Please sign in again.", "请重新登录。"))
+                    return
+                }
+            } catch {
+                if !Task.isCancelled { self.scheduleReconnect(for: id) }
+                return
+            }
+            guard !Task.isCancelled, self.connectionID == id else { return }
+            guard let request = await self.client.workspaceRequest() else {
+                self.disconnect()
+                self.state = .failed(localized("Invalid server address.", "服务器地址无效。"))
+                return
+            }
             let task = URLSession.shared.webSocketTask(with: request)
-            socket = task
+            task.maximumMessageSize = 1_048_576
+            self.socket = task
             task.resume()
-            state = .connected
-            retryCount = 0
-            receiver = Task { [weak self] in await self?.receiveLoop() }
+            do {
+                while !Task.isCancelled, self.connectionID == id {
+                    let message = try await task.receive()
+                    guard self.connectionID == id, !Task.isCancelled else { return }
+                    switch message {
+                    case .data(let data): self.handle(data)
+                    case .string(let string): self.handle(Data(string.utf8))
+                    @unknown default: break
+                    }
+                }
+            } catch {
+                if !Task.isCancelled { self.scheduleReconnect(for: id) }
+            }
         }
     }
 
     func disconnect() {
+        connectionID = UUID()
         reconnect?.cancel(); reconnect = nil
         receiver?.cancel(); receiver = nil
         socket?.cancel(with: .goingAway, reason: nil); socket = nil
+        failPending(localized("Connection closed. Your draft is retained.", "连接已关闭，草稿已保留。"))
+        resetPageRequest()
         state = .disconnected
     }
 
-    func subscribe(to conversation: WorkspaceConversation) { send(["type": "timeline.subscribe", "conversation_id": conversation.id]) }
-
-    func complete(_ conversation: WorkspaceConversation, text: String) {
-        sendCommand(conversation, kind: "stream_complete", text: text, mode: "assistant_message")
-        clearDraft(for: conversation)
+    func subscribe(to conversation: WorkspaceConversation) {
+        if let previous = subscription, previous != conversation.id { send(["type": "timeline.unsubscribe", "conversation_id": previous]) }
+        subscription = conversation.id
+        if state == .connected { send(["type": "timeline.subscribe", "conversation_id": conversation.id]) }
     }
 
-    func sendToolCall(_ conversation: WorkspaceConversation, name: String, callID: String, arguments: String) {
-        sendCommand(conversation, kind: "tool_call", text: arguments, mode: "", toolName: name, toolCallID: callID)
+    func complete(_ conversation: WorkspaceConversation, text: String) async -> Bool {
+        await sendCommand(conversation, text: text, mode: "assistant_message")
     }
 
-    func sendToolOutput(_ conversation: WorkspaceConversation, callID: String, output: String) {
-        sendCommand(conversation, kind: "tool_output", text: "", mode: "", toolCallID: callID, output: output)
+    func sendToolCall(_ conversation: WorkspaceConversation, name: String, callID: String, arguments: String) async -> Bool {
+        guard let data = arguments.data(using: .utf8),
+              (try? JSONSerialization.jsonObject(with: data)) is [String: Any] else {
+            lastError = localized("Tool arguments must be a JSON object.", "工具参数必须是 JSON 对象。")
+            return false
+        }
+        return await sendCommand(conversation, text: arguments, mode: "tool_call", toolName: name, toolCallID: callID)
+    }
+
+    func sendToolOutput(_ conversation: WorkspaceConversation, callID: String, output: String) async -> Bool {
+        await sendCommand(conversation, text: "", mode: "tool_result", toolCallID: callID, output: output)
     }
 
     func assetURL(_ value: String) async -> URL? { await client.absoluteURL(for: value) }
 
-    private func sendCommand(_ conversation: WorkspaceConversation, kind: String, text: String, mode: String, toolName: String = "", toolCallID: String = "", output: String = "") {
-        let command = WorkspaceCommand(commandID: UUID().uuidString, kind: kind, conversationID: conversation.id, requestID: conversation.requestID, text: text, mode: mode, toolName: toolName, toolCallID: toolCallID, output: output)
-        guard let data = try? JSONEncoder().encode(WorkspaceCommandEnvelope(command: command)) else { return }
-        send(data)
+    private func sendCommand(_ conversation: WorkspaceConversation, text: String, mode: String, toolName: String = "", toolCallID: String = "", output: String = "") async -> Bool {
+        guard state == .connected, let socket, !conversation.requestID.isEmpty else {
+            lastError = localized("The connection or request is not ready. Your draft is retained.", "连接或请求尚未就绪，草稿已保留。")
+            return false
+        }
+        let id = UUID().uuidString
+        let generation = connectionID
+        let command = WorkspaceCommand(commandID: id, kind: "stream_complete", conversationID: conversation.id, requestID: conversation.requestID, text: text, mode: mode, toolName: toolName, toolCallID: toolCallID, output: output)
+        guard let data = try? JSONEncoder().encode(WorkspaceCommandEnvelope(command: command)) else { return false }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(returning: false); return }
+                let timeout = Task { [weak self] in
+                    do { try await Task.sleep(for: .seconds(15)) } catch { return }
+                    self?.finish(id, error: localized("Server confirmation timed out. Check the timeline before retrying; your draft is retained.", "等待服务器确认超时。重试前请检查时间线，草稿已保留。"))
+                }
+                pending[id] = PendingCommand(conversationID: conversation.id, requestID: conversation.requestID, continuation: continuation, timeout: timeout)
+                Task { [weak self] in
+                    do { try await socket.send(.string(String(decoding: data, as: UTF8.self))) }
+                    catch { self?.scheduleReconnect(for: generation) }
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.finish(id, error: localized("Sending cancelled. Your draft is retained.", "发送已取消，草稿已保留。")) }
+        }
     }
 
     func draft(for conversation: WorkspaceConversation) -> String {
@@ -67,77 +150,141 @@ import Observation
     }
 
     func saveDraft(_ text: String, for conversation: WorkspaceConversation) {
-        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.isEmpty { clearDraft(for: conversation); return }
-        try? KeychainStore.save(Data(text.utf8), account: draftAccount(for: conversation))
+        let account = draftAccount(for: conversation)
+        if text.isEmpty { KeychainStore.delete(account: account); return }
+        do { try KeychainStore.save(Data(text.utf8), account: account) }
+        catch { lastError = localized("Could not save the draft: ", "无法保存草稿：") + error.localizedDescription }
     }
 
-    private func receiveLoop() async {
-        guard let socket else { return }
+    func loadMore() {
+        guard state == .connected, hasMore, !loadingMore, let cursor, !cursor.isEmpty else { return }
+        let id = UUID().uuidString
+        pageCommandID = id
+        loadingMore = true
+        send(["type": "conversation.page.get", "command_id": id, "cursor": cursor])
+        pageTimeout = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(15)) } catch { return }
+            guard let self, self.pageCommandID == id else { return }
+            self.resetPageRequest()
+            self.lastError = localized("Loading conversations timed out. Please retry.", "加载会话超时，请重试。")
+        }
+    }
+
+    // Internal so the Actions regression runner can exercise actual event handling.
+    func handle(_ data: Data) {
+        guard let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let type = raw["type"] as? String else { return }
         do {
-            while !Task.isCancelled {
-                let message = try await socket.receive()
-                let data: Data
-                switch message { case .data(let value): data = value; case .string(let value): data = Data(value.utf8); @unknown default: continue }
-                handle(data)
+            switch type {
+            case "workspace.snapshot":
+                let snapshot = try JSONDecoder.chatAPI.decode(WorkspaceSnapshot.self, from: data)
+                conversations = snapshot.conversations.sorted { $0.updatedAt > $1.updatedAt }
+                hasMore = snapshot.hasMore ?? false
+                cursor = snapshot.nextCursor
+                removedIDs.removeAll()
+                resetPageRequest()
+                state = .connected
+                retryCount = 0
+                if let subscription { send(["type": "timeline.subscribe", "conversation_id": subscription]) }
+            case "conversation.page":
+                let page = try JSONDecoder.chatAPI.decode(WorkspaceConversationPage.self, from: data)
+                guard page.commandID == pageCommandID else { return }
+                let existing = Set(conversations.map(\.id)).union(removedIDs)
+                conversations += page.conversations.filter { !existing.contains($0.id) }
+                conversations.sort { $0.updatedAt > $1.updatedAt }
+                hasMore = page.hasMore
+                cursor = page.nextCursor
+                resetPageRequest()
+            case "conversation.page.error":
+                guard raw["command_id"] as? String == pageCommandID else { return }
+                resetPageRequest()
+                lastError = raw["message"] as? String ?? localized("Could not load conversations.", "无法加载会话。")
+            case "timeline.reset":
+                let reset = try JSONDecoder.chatAPI.decode(WorkspaceTimelineReset.self, from: data)
+                timelines[reset.conversationID] = reset.items
+            case "timeline.append":
+                let append = try JSONDecoder.chatAPI.decode(WorkspaceTimelineAppend.self, from: data)
+                if !(timelines[append.conversationID] ?? []).contains(where: { $0.id == append.item.id }) {
+                    timelines[append.conversationID, default: []].append(append.item)
+                }
+            case "conversation.upsert":
+                let upsert = try JSONDecoder.chatAPI.decode(WorkspaceConversationUpsert.self, from: data)
+                removedIDs.remove(upsert.conversation.id)
+                conversations.removeAll { $0.id == upsert.conversation.id }
+                conversations.append(upsert.conversation)
+                conversations.sort { $0.updatedAt > $1.updatedAt }
+            case "conversation.remove":
+                if let id = raw["conversation_id"] as? String {
+                    removedIDs.insert(id)
+                    conversations.removeAll { $0.id == id }
+                    timelines.removeValue(forKey: id)
+                    if subscription == id { subscription = nil }
+                }
+            case "workspace.command_ack":
+                let ack = try JSONDecoder.chatAPI.decode(WorkspaceCommandAck.self, from: data)
+                guard let command = pending[ack.commandID] else { return }
+                let matches = command.conversationID == ack.conversationID && command.requestID == ack.requestID
+                finish(ack.commandID, error: matches ? nil : localized("Server confirmation refers to a different request. Your draft is retained.", "服务器确认的请求不匹配，草稿已保留。"))
+            case "workspace.command_error":
+                let failure = try JSONDecoder.chatAPI.decode(WorkspaceCommandError.self, from: data)
+                let message = failure.message ?? failure.error ?? localized("The server rejected this action.", "服务器拒绝了该操作。")
+                if let id = failure.commandID, pending[id] != nil { finish(id, error: message) }
+                else { lastError = message }
+            default: break
             }
         } catch {
-            if !Task.isCancelled { scheduleReconnect() }
+            lastError = localized("Could not decode a workspace event: ", "无法解析工作台事件：") + error.localizedDescription
+            if type == "workspace.snapshot" {
+                disconnect()
+                state = .failed(lastError ?? "Invalid workspace snapshot")
+            }
         }
     }
 
-    private func handle(_ data: Data) {
-        guard let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let type = raw["type"] as? String else { return }
-        switch type {
-        case "workspace.snapshot":
-            if let snapshot = try? JSONDecoder.chatAPI.decode(WorkspaceSnapshot.self, from: data) { conversations = snapshot.conversations }
-        case "timeline.reset":
-            if let reset = try? JSONDecoder.chatAPI.decode(WorkspaceTimelineReset.self, from: data) { timelines[reset.conversationID] = reset.items }
-        case "timeline.append":
-            if let append = try? JSONDecoder.chatAPI.decode(WorkspaceTimelineAppend.self, from: data) {
-                timelines[append.conversationID, default: []].append(append.item)
-            }
-        case "conversation.upsert":
-            if let upsert = try? JSONDecoder.chatAPI.decode(WorkspaceConversationUpsert.self, from: data) {
-                if let index = conversations.firstIndex(where: { $0.id == upsert.conversation.id }) {
-                    conversations[index] = upsert.conversation
-                } else {
-                    conversations.insert(upsert.conversation, at: 0)
-                }
-                conversations.sort { $0.updatedAt > $1.updatedAt }
-            }
-        case "conversation.remove":
-            if let id = raw["conversation_id"] as? String { conversations.removeAll { $0.id == id } }
-        case "workspace.command_error":
-            if let failure = try? JSONDecoder.chatAPI.decode(WorkspaceCommandError.self, from: data) {
-                lastError = failure.message ?? failure.error ?? localized("The server rejected this action.", "服务器拒绝了该操作。")
-            }
-        default: break
+    private func send(_ value: [String: String]) {
+        guard state == .connected, let socket, let data = try? JSONEncoder().encode(value) else { return }
+        let id = connectionID
+        Task { [weak self] in
+            do { try await socket.send(.string(String(decoding: data, as: UTF8.self))) }
+            catch { self?.scheduleReconnect(for: id) }
         }
     }
 
-    private func send(_ value: [String: Any]) { guard let data = try? JSONSerialization.data(withJSONObject: value) else { return }; send(data) }
-    private func send(_ data: Data) { socket?.send(.data(data)) { [weak self] error in if error != nil { Task { @MainActor in self?.scheduleReconnect() } } } }
+    private func finish(_ id: String, error: String?) {
+        guard let command = pending.removeValue(forKey: id) else { return }
+        command.timeout.cancel()
+        if let error { lastError = error }
+        command.continuation.resume(returning: error == nil)
+    }
 
-    private func scheduleReconnect() {
-        guard reconnect == nil else { return }
-        receiver = nil; socket = nil
-        retryCount += 1
+    private func failPending(_ message: String) {
+        for id in Array(pending.keys) { finish(id, error: message) }
+    }
+
+    private func resetPageRequest() {
+        pageTimeout?.cancel(); pageTimeout = nil
+        pageCommandID = nil
+        loadingMore = false
+    }
+
+    private func scheduleReconnect(for id: UUID) {
+        guard connectionID == id, reconnect == nil else { return }
+        connectionID = UUID()
+        receiver?.cancel(); receiver = nil
+        socket?.cancel(with: .goingAway, reason: nil); socket = nil
+        failPending(localized("Connection lost. Check the timeline before retrying; your draft is retained.", "连接已断开。重试前请检查时间线，草稿已保留。"))
+        resetPageRequest()
+        retryCount = min(retryCount + 1, 5)
         let delay = min(pow(2, Double(retryCount)), 30)
         state = .failed(localized("Realtime connection lost. Reconnecting…", "实时连接已断开，正在重连…"))
         reconnect = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled else { return }
-            self?.reconnect = nil
-            self?.connect()
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            guard let self else { return }
+            self.reconnect = nil
+            self.connect()
         }
     }
 
-    private func clearDraft(for conversation: WorkspaceConversation) {
-        KeychainStore.delete(account: draftAccount(for: conversation))
-    }
-
     private func draftAccount(for conversation: WorkspaceConversation) -> String {
-        "workspace-draft.\(conversation.id)"
+        instance.draftAccount(userID: userID, conversationID: conversation.id, requestID: conversation.requestID)
     }
 }

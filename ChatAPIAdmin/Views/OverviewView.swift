@@ -8,7 +8,8 @@ struct OverviewView: View {
         NavigationStack {
             Group {
                 if let workspace {
-                    List(workspace.conversations) { conversation in
+                    List {
+                        ForEach(workspace.conversations) { conversation in
                         NavigationLink { OperatorConversationView(conversation: conversation, workspace: workspace) } label: {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(conversation.title.isEmpty ? localized("Untitled conversation", "未命名会话") : conversation.title).font(.headline)
@@ -16,6 +17,8 @@ struct OverviewView: View {
                                 Text(conversation.status).font(.caption).foregroundStyle(.tertiary)
                             }.padding(.vertical, 4)
                         }
+                        }
+                        if workspace.hasMore { Button(localized("Load More Conversations", "加载更多会话")) { workspace.loadMore() }.disabled(workspace.loadingMore || workspace.state != .connected) }
                     }
                     .overlay { if workspace.conversations.isEmpty { ContentUnavailableView(localized("No conversations", "暂无会话"), systemImage: "bubble.left.and.bubble.right") } }
                     .safeAreaInset(edge: .bottom) { connectionStatus(workspace) }
@@ -40,8 +43,9 @@ struct OverviewView: View {
     }
 
     private func startWorkspace() async {
-        guard workspace == nil, let client = store.client() else { return }
-        let connection = WorkspaceConnection(client: client)
+        if let workspace { workspace.connect(); return }
+        guard let client = store.client(), let instance = store.selected, let user = store.sessionUser else { return }
+        let connection = WorkspaceConnection(client: client, instance: instance, userID: user.id)
         workspace = connection
         connection.connect()
     }
@@ -54,6 +58,7 @@ private struct OperatorConversationView: View {
     @State private var composerMode = "reply"
     @State private var toolName = ""
     @State private var toolCallID = ""
+    @State private var sending = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -64,7 +69,7 @@ private struct OperatorConversationView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(message.role == "assistant" ? localized("You", "你") : localized("Caller", "调用方")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                             Text(message.content)
-                            ForEach(message.contentParts ?? []) { part in
+                            ForEach(Array((message.contentParts ?? []).enumerated()), id: \.offset) { _, part in
                                 if let text = part.text, !text.isEmpty, text != message.content { Text(text) }
                                 if let source = part.src { WorkspaceMediaView(source: source, mediaType: part.mediaType, workspace: workspace) }
                             }
@@ -80,8 +85,8 @@ private struct OperatorConversationView: View {
                     if composerMode == "output" { TextField(localized("Tool call ID", "工具调用 ID"), text: $toolCallID) }
                     TextField(composerMode == "reply" ? localized("Write the assistant response", "输入助手回复") : (composerMode == "call" ? localized("Tool arguments", "工具参数") : localized("Tool output", "工具输出")), text: $reply, axis: .vertical).lineLimit(1...5).textFieldStyle(.roundedBorder)
                 }
-                Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }.disabled(!canSend)
-            }.padding().background(.bar)
+                Button { Task { await send() } } label: { if sending { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(.title2) } }.disabled(!canSend)
+            }.disabled(sending).padding().background(.bar)
         }
         .navigationTitle(conversation.title.isEmpty ? localized("Conversation", "会话") : conversation.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -93,17 +98,28 @@ private struct OperatorConversationView: View {
     }
 
     private var canSend: Bool {
+        guard !sending, workspace.state == .connected,
+              let current = workspace.conversations.first(where: { $0.id == conversation.id }),
+              current.requestID == conversation.requestID, !current.requestID.isEmpty,
+              ["waiting", "streaming"].contains(current.status) else { return false }
         let body = reply.trimmingCharacters(in: .whitespacesAndNewlines)
         if composerMode == "call" { return !body.isEmpty && !toolName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !toolCallID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         if composerMode == "output" { return !body.isEmpty && !toolCallID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         return !body.isEmpty
     }
 
-    private func send() {
+    private func send() async {
         let value = reply.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSend else { return }
-        switch composerMode { case "call": workspace.sendToolCall(conversation, name: toolName, callID: toolCallID, arguments: value); case "output": workspace.sendToolOutput(conversation, callID: toolCallID, output: value); default: workspace.complete(conversation, text: value) }
-        reply = ""
+        sending = true
+        defer { sending = false }
+        let sent: Bool
+        switch composerMode {
+        case "call": sent = await workspace.sendToolCall(conversation, name: toolName.trimmingCharacters(in: .whitespacesAndNewlines), callID: toolCallID.trimmingCharacters(in: .whitespacesAndNewlines), arguments: value)
+        case "output": sent = await workspace.sendToolOutput(conversation, callID: toolCallID.trimmingCharacters(in: .whitespacesAndNewlines), output: value)
+        default: sent = await workspace.complete(conversation, text: value)
+        }
+        if sent { reply = "" }
     }
 }
 

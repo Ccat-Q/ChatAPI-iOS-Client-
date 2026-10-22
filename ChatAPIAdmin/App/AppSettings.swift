@@ -14,5 +14,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 }
 
 func localized(_ english: String, _ chinese: String) -> String {
-    AppLanguage(rawValue: UserDefaults.standard.string(forKey: "app-language") ?? "system") == .chinese ? chinese : english
+    let language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: "app-language") ?? "system") ?? .system
+    let isChinese = language == .chinese || (language == .system && Locale.preferredLanguages.first?.hasPrefix("zh") == true)
+    return isChinese ? chinese : english
 }

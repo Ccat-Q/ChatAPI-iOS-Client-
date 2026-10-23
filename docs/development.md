@@ -27,6 +27,8 @@
 
 性能基线为 [Actions #40](https://github.com/Ccat-Q/ChatAPI-iOS-Client-/actions/runs/39901737408)：串行 job 4 分 37 秒，其中回归 21 秒、归档 25 秒、截图 3 分 35 秒；缓存恢复约 1 秒、保存约 2 秒。新方案须分别测量首次未命中和精确命中的运行；排队和 runner 启动时间独立于编译耗时。
 
+[Actions #42](https://github.com/Ccat-Q/ChatAPI-iOS-Client-/actions/runs/39903849615) 已验证三个任务并行、133 项 Swift 断言、四项缓存控制流检查、IPA/dSYM 及五张新截图全部成功。此次 Xcode 部分缓存命中、截图必须重拍，从最早 job 启动到汇总结束共 278 秒；基线 277 秒，尚不能据此宣称首次启动提速。模拟器启动耗时波动明显。精确缓存命中的验证与耗时另见 PR，不能把图片复用记作新一次模拟器截图。
+
 ## 自动回归
 
 Actions 调用 `bash scripts/ci-regressions.sh`：未精确命中时编译项目实际模型、APIClient、KeychainStore、InstanceStore、WorkspaceConnection 、AppSettings、AppLock 和辅助模型服务，再运行 `Tests/CoreRegressions.swift`。不复制一份实现进行测试，临时模块缓存与服务状态在退出时清理。

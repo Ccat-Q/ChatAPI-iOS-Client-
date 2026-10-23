@@ -44,9 +44,24 @@
 - 首轮修复提交 `c6167611e6e6ae21e69c420fac96e2b000ee6646`：[Actions 39817263745](https://github.com/Ccat-Q/ChatAPI-iOS-Client-/actions/runs/39817263745) 全部成功，56 项断言通过，Release archive、IPA/dSYM 打包与上传完成。
 - 首轮环境：Xcode 26.6、iPhoneOS SDK 26.5、macos-26 runner。
 - 首轮发现的图标、重复 Sendable 和 headermap 告警已纳入收尾修复；系统的无 AppIntents 元数据提示不代表本应用缺失功能。
-- 最终代码提交 `16193d8e9948a73c6b1c602d4273a39322d20c52`：[Actions 39818656240](https://github.com/Ccat-Q/ChatAPI-iOS-Client-/actions/runs/39818656240) 全部成功，**69 项回归断言通过**，iOS Release archive、IPA/dSYM 打包与上传成功。后续提交仅补记本验证记录。
-- 最终代码构建的项目图标、Sendable 和 headermap 告警已消除；剩余无 AppIntents 依赖的系统元数据提示。产物为 [ChatAPIAdmin-unsigned](https://github.com/Ccat-Q/ChatAPI-iOS-Client-/actions/runs/39818656240/artifacts/12443481416)，包含未签名 IPA 与 dSYM。
+- 首次审查收尾提交 `16193d8e9948a73c6b1c602d4273a39322d20c52`：[Actions 39818656240](https://github.com/Ccat-Q/ChatAPI-iOS-Client-/actions/runs/39818656240) 全部成功，**69 项回归断言通过**，iOS Release archive、IPA/dSYM 打包与上传成功。
+- 首次审查收尾时的项目图标、Sendable 和 headermap 告警已消除；剩余无 AppIntents 依赖的系统元数据提示。产物为 [ChatAPIAdmin-unsigned](https://github.com/Ccat-Q/ChatAPI-iOS-Client-/actions/runs/39818656240/artifacts/12443481416)，包含未签名 IPA 与 dSYM。
 - 静态检查：`git diff --check`、shell 语法、Python 语法、JSON/plist 结构与文档相对链接。
+
+## 2026-10-23 认证页面与编辑区复核
+
+用户报告认证页黑屏、遮罩或布局异常，并要求液态玻璃编辑区与独立模型配置的 AI 自动补全。复核发现并修复以下问题：
+
+| 级别 | 问题 | 修复与验证 |
+| --- | --- | --- |
+| P1 | 系统认证引发 inactive 时，隐私遮罩可能覆盖已锁定的认证页面；重新 active 又可重复弹出认证 | 区分后台、已解锁 inactive 与锁定状态；每次前台会话只自动认证一次，取消后手动重试；认证代次回归覆盖旧结果失效 |
+| P2 | 锁定页缺少稳定的全屏布局、可恢复状态与真实认证方式提示 | 可滚动布局、验证进度和重试按钮；按设备能力显示 Face ID、Touch ID 或密码；固定预览截图核对 |
+| P2 | 回复、工具参数、工具结果共用文本容易串入其他操作；缺少辅助模型建议 | 分离三种草稿并迁移原文本；独立配置与 Keychain 隔离；建议先预览，采纳后仍需手动发送 |
+| P2 | 新增异步建议可能在切换请求、修改输入或离开页面后覆盖新草稿 | 1.2 秒去抖、取消、输入快照和生成代次校验；回归覆盖晚返回、取消和实例/用户隔离 |
+
+新增模型与认证回归后，[Actions 39898482801](https://github.com/Ccat-Q/ChatAPI-iOS-Client-/actions/runs/39898482801) 通过 **115 项断言**、Release archive、IPA/dSYM 和 Debug 模拟器截图。已人工核对锁定页、回复、工具调用、工具结果与深色回复五张截图。后续提交修正 SwiftUI Binding 的并发转换警告；最新构建结果以 PR 检查为准。
+
+配置、数据发送范围、工具 schema 校验子集和验收限制见 [AI 自动补全](../ai-assist.md)。截图使用固定数据，不能证明真实 Face ID 或外部模型服务已验收。
 
 ## 限制与后续验收
 
@@ -55,7 +70,7 @@
 - 设备生物识别、应用切换器截图、真实 OIDC/验证码提供方和 Bark 投递，按 [真机验收](../development.md) 检查。
 - Cookie 仍按系统域/路径共享，同主机不同端口的独立实例可能互相影响。建议独立主机名；若要彻底隔离，需要新的 Cookie 生命周期设计并复核 ADR 0002。
 - 没有自动迁移旧的无实例草稿；无法可靠归属，避免把其他服务器输入带入当前会话。
-- 工具 schema 的本地验证、媒体上传、内建工具、自动化录制和高级动作编辑尚未实现；见 [功能边界](../features-and-protocol.md)。
+- AI 工具建议已实现常用 schema 子集校验；完整 JSON Schema、媒体上传、内建工具、自动化录制和高级动作编辑尚未实现；见 [功能边界](../features-and-protocol.md)。
 - REST 1 MiB 限制发生在下载结束后，不能限制下载过程全部磁盘/网络消耗。大规模请求列表后续应由服务器分页契约配合解决。
 
 修复不自动合并到 main，也不发布带签名安装包。

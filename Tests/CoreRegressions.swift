@@ -223,16 +223,17 @@ private actor UnauthorizedCounter {
         let instance = Instance(id: UUID(), name: "Bounded fixture", baseURL: URL(string: "http://127.0.0.1:\(CommandLine.arguments[1])/")!, allowsInsecureHTTP: true, capabilities: nil)
         let client = APIClient(instance: instance)
         var headerRequestFinished = false
+        var headerFailure: String?
         let declared = Task { @MainActor in
             defer { headerRequestFinished = true }
             do { let _: SuccessResponse = try await client.get("/fixture/oversize-headers"); return false }
             catch APIError.server { return true }
-            catch { print("Oversized-header fixture returned unexpected error: \(error)"); return false }
+            catch { headerFailure = String(reflecting: error); return false }
         }
         defer { declared.cancel() }
-        try await waitUntil("Declared oversized responses must fail before the body arrives") { headerRequestFinished }
+        try await waitUntil("Declared oversized responses must fail before the remaining body is released") { headerRequestFinished }
         let _: SuccessResponse = try await client.post("/fixture/release-large-body", body: EmptyRequest())
-        try check(await declared.value, "An oversized Content-Length must be rejected before downloading its body")
+        try check(await declared.value, "An oversized Content-Length must be rejected before downloading the remaining body: \(headerFailure ?? "unexpected success")")
         do { let _: SuccessResponse = try await client.get("/fixture/oversize-chunked"); try check(false, "Chunked oversized response was accepted") }
         catch APIError.server { try check(true, "Unknown-size responses must be bounded while streaming") }
         let stats: Stats = try await client.get("/fixture/connection-stats")

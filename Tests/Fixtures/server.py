@@ -60,11 +60,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({"text": "x" * 1_048_576})
         if self.path == "/fixture/oversize-headers":
             self.send_response(200)
+            self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(8 * 1_048_576))
             self.end_headers()
+            # Supply the first byte so Foundation may finish response setup/MIME
+            # handling; the remaining multi-MiB body stays behind an explicit gate.
+            self.wfile.write(b"{")
             self.wfile.flush()
-            # No body can arrive until the client independently releases it.
-            # A download-then-check implementation cannot finish this request.
+            # A download-then-check implementation still cannot finish this request.
             self.server.large_body_gate.wait(10)
             self.close_connection = True
             return

@@ -17,10 +17,14 @@ done
 [[ -s "$regression_dir/port" ]]
 xcrun swiftc -swift-version 6 -parse-as-library -target "$(uname -m)-apple-macosx14.0" \
   ChatAPIAdmin/Models/Models.swift \
+  ChatAPIAdmin/Models/AIAssist.swift \
+  ChatAPIAdmin/App/AppLock.swift \
   ChatAPIAdmin/App/AppSettings.swift \
   ChatAPIAdmin/Services/APIClient.swift \
   ChatAPIAdmin/Services/KeychainStore.swift \
   ChatAPIAdmin/Services/InstanceStore.swift \
   ChatAPIAdmin/Services/WorkspaceConnection.swift \
-  Tests/CoreRegressions.swift -o "$regression_dir/regressions"
+  ChatAPIAdmin/Services/AIAssistClient.swift \
+  ChatAPIAdmin/Services/AIComposerController.swift \
+  Tests/CoreRegressions.swift Tests/AuthenticationRegressions.swift Tests/AIAssistRegressions.swift -o "$regression_dir/regressions"
 "$regression_dir/regressions" "$(cat "$regression_dir/port")"

@@ -6,6 +6,7 @@
 | --- | --- |
 | [架构与状态](architecture.md) | 组件职责、会话恢复、实时连接、数据保存 |
 | [功能与协议](features-and-protocol.md) | 角色入口、接口、工作台命令与当前功能边界 |
+| [AI 自动补全与编辑区](ai-assist.md) | 辅助模型配置、数据范围、建议采纳、认证页与玻璃布局 |
 | [开发与验证](development.md) | GitHub Actions 编译、回归测试、IPA 与真机验收 |
 | [故障排查](troubleshooting.md) | 登录、连接、设置、通知和构建问题 |
 | [本次审查](reviews/2026-10-22-project-audit.md) | 问题证据、修复、验证与未覆盖项 |

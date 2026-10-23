@@ -32,12 +32,41 @@ struct RootView: View {
     }
 }
 
-private struct LockView: View {
+struct LockView: View {
     @Environment(AppLock.self) private var lock
     var body: some View {
-        ContentUnavailableView(localized("ChatAPI Admin Locked", "ChatAPI 管理已锁定"), systemImage: "lock.fill", description: Text(localized("Authenticate to manage your instances.", "验证身份以管理实例。")))
-            .glassEffect()
-            .onTapGesture { lock.unlock() }
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 24) {
+                    Image(systemName: lock.method.symbol)
+                        .font(.system(size: 64, weight: .light))
+                        .foregroundStyle(.cyan)
+                        .accessibilityHidden(true)
+                    VStack(spacing: 10) {
+                        Text(localized("Unlock Workspace", "解锁工作台")).font(.largeTitle.bold())
+                        Text(localized("Your conversations and server settings are protected on this device.", "此设备上的会话与服务器设置已受保护。"))
+                            .foregroundStyle(.secondary)
+                    }
+                    if lock.isAuthenticating {
+                        ProgressView(localized("Waiting for device authentication…", "正在等待设备验证…"))
+                    } else {
+                        Button { lock.unlock() } label: {
+                            Label(localized("Unlock with ", "使用 ") + lock.method.title + localized("", " 解锁"), systemImage: lock.method.symbol)
+                                .frame(maxWidth: .infinity).padding(.vertical, 4)
+                        }
+                        .buttonStyle(.glassProminent).controlSize(.large)
+                    }
+                    if let message = lock.message {
+                        Text(message).font(.callout).foregroundStyle(.secondary).accessibilityLiveRegion(.polite)
+                    }
+                }
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+                .padding(32)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+            }
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        }
     }
 }
 

@@ -25,7 +25,10 @@ class Handler(BaseHTTPRequestHandler):
         if cookie:
             self.send_header("Set-Cookie", cookie)
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
 
     def body(self):
         return self.rfile.read(int(self.headers.get("Content-Length", "0")))
@@ -63,6 +66,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = json.loads(self.body() or b"{}")
+        if self.path in ["/ai/chat/completions", "/ai/responses"]:
+            if self.headers.get("Cookie") or self.headers.get("Origin") or self.headers.get("Authorization") != "Bearer ai-fixture":
+                return self.reply({"error": "AI request leaked session data or used the wrong key"}, 403)
+            model = body.get("model")
+            if model == "redirect":
+                self.send_response(307)
+                self.send_header("Location", "/fixture/headers")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if model == "oversize":
+                return self.reply({"text": "x" * 1_048_576})
+            if model == "slow":
+                time.sleep(0.5)
+            candidate = {"text": "Suggested reply"}
+            if model in ["tool", "bad-tool"]:
+                candidate = {"tool_name": "get_weather", "arguments": {"city": 42 if model == "bad-tool" else "上海", "unit": "celsius"}}
+            text = json.dumps(candidate)
+            if self.path.endswith("responses"):
+                return self.reply({"output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}]})
+            return self.reply({"choices": [{"message": {"role": "assistant", "content": text}}]})
         if self.path == "/fixture/session-mode":
             self.server.session_mode = body["mode"]
             return self.reply({"ok": True})

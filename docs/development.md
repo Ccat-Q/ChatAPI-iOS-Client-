@@ -8,7 +8,7 @@
 
 - 触发：推送 `main`、创建/更新 PR，或手动 `workflow_dispatch`。
 - 环境：`macos-26`，首先输出 Xcode 和 SDK，并检查 iOS SDK 主版本至少 26。
-- 顺序：回归测试 → Release unsigned archive → IPA/dSYM 打包 → artifact 上传。
+- 顺序：回归测试 → Release unsigned archive → IPA/dSYM 打包 → artifact 上传 → Debug 模拟器界面截图。
 - 同一分支的新运行取消旧运行，单次上限 25 分钟，仓库权限只有 `contents: read`。
 - 不需要 Apple 签名凭据，不自动分发、发布或合并 PR。
 
@@ -16,7 +16,7 @@
 
 ## 自动回归
 
-Actions 调用 `bash scripts/ci-regressions.sh`：在 runner 的临时目录编译项目实际模型、APIClient、KeychainStore、InstanceStore、WorkspaceConnection 和 AppSettings，再运行 `Tests/CoreRegressions.swift`。不复制一份实现进行测试。
+Actions 调用 `bash scripts/ci-regressions.sh`：在 runner 的临时目录编译项目实际模型、APIClient、KeychainStore、InstanceStore、WorkspaceConnection 、AppSettings、AppLock 和辅助模型服务，再运行 `Tests/CoreRegressions.swift`。不复制一份实现进行测试。
 
 Python 标准库模拟服务 `Tests/Fixtures/server.py` 只监听 runner 的 `127.0.0.1` 随机端口，提供 Cookie REST 和 WebSocket 协议。不依赖生产实例、Bark 密钥或第三方账号。退出时关闭服务、删除临时目录；涉及会话恢复的测试还原共享实例记录。
 
@@ -31,6 +31,10 @@ Python 标准库模拟服务 `Tests/Fixtures/server.py` 只监听 runner 的 `12
 - 会话恢复先验证、临时服务故障保留标记、过期清理、跨实例异步结果不能串写。
 
 模拟服务验证客户端契约，不替代与真实服务器的集成验收。生产协议应核对 [功能与协议](features-and-protocol.md) 中固定版本的服务端源码。
+
+认证与 AI 回归还覆盖：认证取消后不自动循环、后台遮挡与旧认证回调失效；独立 API 凭据且无 Cookie、两种协议、工具 schema、网络取消、旧建议隔离、自动建议去抖与模式草稿迁移。
+
+Actions 还运行 `scripts/ci-screenshots.sh`，编译 Debug 模拟器应用，使用只存在于 Debug 的固定样例路由截取锁屏、回复、工具调用、工具结果与深色界面。截图保存为 `ChatAPIAdmin-UI-screenshots` artifact；Release 没有预览入口。截图不触发真实模型调用或系统生物识别。
 
 ## 构建产物
 

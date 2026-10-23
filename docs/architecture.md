@@ -9,6 +9,8 @@
 | `InstanceStore` | 实例列表、选中实例、已验证用户、会话恢复和失效处理 |
 | `APIClient` | Cookie REST 请求、Origin、响应大小限制、协议解码、WebSocket 请求 |
 | `WorkspaceConnection` | 实时状态、订阅、分页、命令确认、重连、草稿访问 |
+| `AIAssistClient` / `AIComposerController` | 独立模型请求、响应限制、schema 校验、去抖取消、建议版本隔离 |
+| `MessageComposerView` | 浮动玻璃编辑区、模式独立草稿、AI 建议预览与采纳 |
 | `KeychainStore` | 设备本地的实例元数据、会话标记和回复草稿 |
 | SwiftUI Views | 表单输入、确认和结果展示；服务端执行最终授权与校验 |
 
@@ -21,7 +23,7 @@
 3. 无已保存会话标记时显示登录；有标记时先请求 `/api/auth/session`。
 4. 只有 `authenticated == true` 且存在用户对象才进入业务界面。
 5. 服务器明确返回未认证或 401 时清除该实例的本地登录状态；网络故障、5xx 或解码失败保留标记并提供重试。
-6. 进入后台后重新锁定并使已验证状态失效；回到前台重新解锁、验证。
+6. 进入后台后重新锁定并使已验证状态失效；回到前台重新解锁、验证。每次前台会话只自动尝试一次，用户取消后手动重试，不因系统认证的 active/inactive 切换反复弹窗。锁定页在短暂 inactive 时保持可见，后台及已解锁内容在 inactive 时均遮挡。
 
 本地密码登录允许填写 TOTP。网页登录使用非持久 WKWebView 完成服务器现有登录流程；用户点击“完成登录”后，仅导入适用于实例主机的 Cookie，再验证会话。没有增加自定义 OAuth 回调或 PKCE 协议。
 
@@ -49,10 +51,11 @@ Cookie 由系统 `HTTPCookieStorage.shared` 管理，不写入应用自建的 Co
 | 实例列表 | Keychain `instances` | 此设备 |
 | 选中实例、语言 | UserDefaults | 此应用 |
 | 登录标记 | Keychain `session-marker.<instance UUID>` | 实例 |
-| 回复文本草稿 | Keychain `workspace-draft.<instance UUID>.<encoded components>` | 实例、用户、会话、请求 |
-| 时间线、用户信息、明文密钥 | 内存 | 当前界面 / 会话 |
+| 各模式文本、工具字段与补全要求 | Keychain `workspace-draft.<instance UUID>.<encoded components>` | 实例、用户、会话、请求 |
+| 辅助模型配置及 API 密钥 | Keychain `ai-assist.<instance UUID>.<encoded owner>` | 实例与账号 |
+| 时间线、用户信息、已显示的业务密钥 | 内存 | 当前界面 / 会话 |
 
-Keychain 更新使用先更新、不存在再新增，避免先删除旧值造成失败时的数据丢失；属性为 `WhenUnlockedThisDeviceOnly`。实例列表先成功写入再更新内存。删除实例会删除其新格式草稿与会话标记，并清除适用于服务器地址的 Cookie。
+Keychain 更新使用先更新、不存在再新增，避免先删除旧值造成失败时的数据丢失；属性为 `WhenUnlockedThisDeviceOnly`。实例列表先成功写入再更新内存。删除实例会删除其新格式草稿、辅助模型配置与会话标记，并清除适用于服务器地址的 Cookie。
 
 旧版未区分实例的草稿不自动迁移，因为无法可靠判断归属；新实现不会读取这些记录。Cookie 按域和路径匹配，并不按端口隔离，因此独立服务器应使用不同主机名，同一主机上的多个实例可能互相影响登录和退出。
 
@@ -63,3 +66,5 @@ Keychain 更新使用先更新、不存在再新增，避免先删除旧值造�
 HTTP 仅允许用户明确选择开发用途的实例；默认要求 HTTPS。ATS 的全局 HTTP 许可用于实现这个按实例选择，具体限制由应用 URL 校验执行。实例只接受根地址，无用户信息、子路径、查询或片段。外部附件只接受 HTTPS，开发实例的 HTTP 许可不扩散到其他主机。证书验证继续使用系统默认信任。REST 只跟随同源重定向，避免凭据转发到其他来源或降级连接；网页登录允许 HTTPS 身份提供方跳转。
 
 REST 响应解码前检查 1 MiB 文件大小，读取后清理临时文件；WebSocket 单消息也限制为 1 MiB。REST 的限制不能阻止下载期间的全部流量与磁盘占用，部署端仍需控制响应大小。
+
+辅助模型使用独立临时网络会话，禁用 Cookie、缓存和全部重定向。按输入快照取消旧生成，只允许当前快照采纳；不会自动发送或执行工具。旧版已按实例保存的纯文本草稿会迁移为回复草稿，工具模式拥有独立文本。详见 [AI 与编辑区设计](ai-assist.md)。

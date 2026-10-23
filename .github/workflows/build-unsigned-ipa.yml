@@ -46,3 +46,11 @@ jobs:
           path: |
             build/ChatAPIAdmin-unsigned.ipa
             build/ChatAPIAdmin.dSYM.zip
+      - name: Capture simulator UI screenshots
+        run: bash scripts/ci-screenshots.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ChatAPIAdmin-UI-screenshots
+          path: build/screenshots/*.png
+          if-no-files-found: ignore

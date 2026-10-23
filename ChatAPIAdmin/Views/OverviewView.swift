@@ -54,72 +54,111 @@ struct OverviewView: View {
 private struct OperatorConversationView: View {
     let conversation: WorkspaceConversation
     let workspace: WorkspaceConnection
-    @State private var reply = ""
-    @State private var composerMode = "reply"
-    @State private var toolName = ""
-    @State private var toolCallID = ""
+    @Environment(InstanceStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var draft = WorkspaceComposerDraft()
     @State private var sending = false
+    @State private var ai = AIComposerController()
+    @State private var showingAISettings = false
+    @State private var skipAutomaticOnce = false
+
+    private var input: AICompletionInput {
+        .make(conversation: conversation, items: workspace.timelines[conversation.id] ?? [], mode: draft.mode, draft: draft.text, toolName: draft.toolName, toolCallID: draft.toolCallID, instruction: draft.aiInstruction)
+    }
+    private var requestIsCurrent: Bool {
+        guard let current = workspace.conversations.first(where: { $0.id == conversation.id }) else { return false }
+        return current.requestID == conversation.requestID && !current.requestID.isEmpty && ["waiting", "streaming"].contains(current.status)
+    }
+    private var canSend: Bool {
+        guard !sending, requestIsCurrent, workspace.state == .connected,
+              !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        if draft.mode == .toolCall { return !draft.toolName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !draft.toolCallID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if draft.mode == .toolOutput { return !draft.toolCallID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return true
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            List(workspace.timelines[conversation.id] ?? []) { item in
-                if let message = item.message {
-                    HStack {
-                        if message.role == "assistant" { Spacer(minLength: 36) }
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(message.role == "assistant" ? localized("You", "你") : localized("Caller", "调用方")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                            Text(message.content)
-                            ForEach(Array((message.contentParts ?? []).enumerated()), id: \.offset) { _, part in
-                                if let text = part.text, !text.isEmpty, text != message.content { Text(text) }
-                                if let source = part.src { WorkspaceMediaView(source: source, mediaType: part.mediaType, workspace: workspace) }
-                            }
-                        }.padding(10).background(message.role == "assistant" ? Color.cyan.opacity(0.18) : Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
-                        if message.role != "assistant" { Spacer(minLength: 36) }
-                    }.listRowSeparator(.hidden)
-                }
-            }.listStyle(.plain)
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Picker(localized("Action", "动作"), selection: $composerMode) { Text(localized("Reply", "回复")).tag("reply"); Text(localized("Tool call", "工具调用")).tag("call"); Text(localized("Tool output", "工具输出")).tag("output") }.pickerStyle(.segmented)
-                    if composerMode == "call" { TextField(localized("Tool name", "工具名称"), text: $toolName); TextField(localized("Tool call ID", "工具调用 ID"), text: $toolCallID) }
-                    if composerMode == "output" { TextField(localized("Tool call ID", "工具调用 ID"), text: $toolCallID) }
-                    TextField(composerMode == "reply" ? localized("Write the assistant response", "输入助手回复") : (composerMode == "call" ? localized("Tool arguments", "工具参数") : localized("Tool output", "工具输出")), text: $reply, axis: .vertical).lineLimit(1...5).textFieldStyle(.roundedBorder)
-                }
-                Button { Task { await send() } } label: { if sending { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(.title2) } }.disabled(!canSend)
-            }.disabled(sending).padding().background(.bar)
+        List(workspace.timelines[conversation.id] ?? []) { item in
+            if let message = item.message {
+                HStack {
+                    if message.role == "assistant" { Spacer(minLength: 36) }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(message.role == "assistant" ? localized("You", "你") : localized("Caller", "调用方")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(message.content)
+                        ForEach(Array((message.contentParts ?? []).enumerated()), id: \.offset) { _, part in
+                            if let text = part.text, !text.isEmpty, text != message.content { Text(text) }
+                            if let source = part.src { WorkspaceMediaView(source: source, mediaType: part.mediaType, workspace: workspace) }
+                        }
+                    }.padding(12).background(message.role == "assistant" ? Color.cyan.opacity(0.16) : Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
+                    if message.role != "assistant" { Spacer(minLength: 36) }
+                }.listRowSeparator(.hidden).listRowBackground(Color.clear)
+            }
+        }
+        .listStyle(.plain).scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            MessageComposerView(mode: $draft.mode, text: Binding(get: { draft.text }, set: { draft.text = $0 }), toolName: $draft.toolName, toolCallID: $draft.toolCallID, instruction: $draft.aiInstruction,
+                tools: input.tools, canSend: canSend, sending: sending, isGenerating: ai.isGenerating,
+                configured: ai.configuration != nil, automatic: ai.configuration?.automatic ?? false,
+                suggestion: ai.suggestion, aiError: ai.error, requestIsCurrent: requestIsCurrent,
+                onSend: { Task { await send() } }, onGenerate: generate, onCancel: { ai.cancel() }, onApply: applySuggestion,
+                onConfigure: { showingAISettings = true }, onAutomatic: { ai.setAutomatic($0); scheduleAutomatic() })
         }
         .navigationTitle(conversation.title.isEmpty ? localized("Conversation", "会话") : conversation.title)
         .navigationBarTitleDisplayMode(.inline)
-        .task {
-            reply = workspace.draft(for: conversation)
-            workspace.subscribe(to: conversation)
+        .sheet(isPresented: $showingAISettings, onDismiss: { reloadAI(); scheduleAutomatic() }) {
+            NavigationStack { AIAssistSettingsView() }
         }
-        .onChange(of: reply) { _, value in workspace.saveDraft(value, for: conversation) }
+        .task {
+            draft = workspace.composerDraft(for: conversation)
+            workspace.subscribe(to: conversation)
+            reloadAI()
+            scheduleAutomatic()
+        }
+        .onChange(of: draft) { _, value in workspace.saveComposerDraft(value, for: conversation) }
+        .onChange(of: input) { _, _ in
+            ai.cancel()
+            if skipAutomaticOnce { skipAutomaticOnce = false }
+            else { scheduleAutomatic() }
+        }
+        .onChange(of: requestIsCurrent) { _, current in if !current { ai.cancel() } }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { ai.cancel() } }
+        .onDisappear { ai.cancel() }
     }
 
-    private var canSend: Bool {
-        guard !sending, workspace.state == .connected,
-              let current = workspace.conversations.first(where: { $0.id == conversation.id }),
-              current.requestID == conversation.requestID, !current.requestID.isEmpty,
-              ["waiting", "streaming"].contains(current.status) else { return false }
-        let body = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-        if composerMode == "call" { return !body.isEmpty && !toolName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !toolCallID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        if composerMode == "output" { return !body.isEmpty && !toolCallID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        return !body.isEmpty
+    private func reloadAI() {
+        guard let instance = store.selected, let user = store.sessionUser else { return }
+        ai.reload(instance: instance, userID: user.id)
     }
-
+    private func scheduleAutomatic() {
+        guard !sending, requestIsCurrent, scenePhase == .active, let instance = store.selected else { ai.cancel(); return }
+        ai.schedule(input, instance: instance, automatically: true)
+    }
+    private func generate() {
+        guard ai.configuration != nil else { showingAISettings = true; return }
+        guard !sending, requestIsCurrent, let instance = store.selected else { return }
+        ai.schedule(input, instance: instance, automatically: false)
+    }
+    private func applySuggestion() {
+        guard !sending, requestIsCurrent, let suggestion = ai.takeSuggestion(for: input) else { return }
+        var updated = draft
+        updated.text = suggestion.text
+        if draft.mode == .toolCall { updated.toolName = suggestion.toolName; updated.toolCallID = suggestion.toolCallID }
+        skipAutomaticOnce = updated != draft
+        draft = updated
+    }
     private func send() async {
-        let value = reply.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSend else { return }
+        ai.cancel()
         sending = true
         defer { sending = false }
+        let value = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let sent: Bool
-        switch composerMode {
-        case "call": sent = await workspace.sendToolCall(conversation, name: toolName.trimmingCharacters(in: .whitespacesAndNewlines), callID: toolCallID.trimmingCharacters(in: .whitespacesAndNewlines), arguments: value)
-        case "output": sent = await workspace.sendToolOutput(conversation, callID: toolCallID.trimmingCharacters(in: .whitespacesAndNewlines), output: value)
-        default: sent = await workspace.complete(conversation, text: value)
+        switch draft.mode {
+        case .toolCall: sent = await workspace.sendToolCall(conversation, name: draft.toolName.trimmingCharacters(in: .whitespacesAndNewlines), callID: draft.toolCallID.trimmingCharacters(in: .whitespacesAndNewlines), arguments: value)
+        case .toolOutput: sent = await workspace.sendToolOutput(conversation, callID: draft.toolCallID.trimmingCharacters(in: .whitespacesAndNewlines), output: value)
+        case .reply: sent = await workspace.complete(conversation, text: value)
         }
-        if sent { reply = "" }
+        if sent { skipAutomaticOnce = true; draft.text = "" }
     }
 }
 

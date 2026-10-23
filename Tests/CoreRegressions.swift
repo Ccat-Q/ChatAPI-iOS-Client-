@@ -30,6 +30,8 @@ private actor UnauthorizedCounter {
         try keychainUpdates()
         try await networkAndWorkspace()
         try await sessionRecovery()
+        try await authenticationRegressions()
+        try await aiRegressions()
         print("PASS: \(assertions) regression assertions")
     }
 

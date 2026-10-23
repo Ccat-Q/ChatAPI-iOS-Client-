@@ -145,14 +145,24 @@ import Observation
     }
 
     func draft(for conversation: WorkspaceConversation) -> String {
-        guard let data = try? KeychainStore.load(account: draftAccount(for: conversation)) else { return "" }
-        return String(decoding: data, as: UTF8.self)
+        composerDraft(for: conversation).text
     }
 
     func saveDraft(_ text: String, for conversation: WorkspaceConversation) {
+        var draft = composerDraft(for: conversation)
+        draft.text = text
+        saveComposerDraft(draft, for: conversation)
+    }
+
+    func composerDraft(for conversation: WorkspaceConversation) -> WorkspaceComposerDraft {
+        guard let data = try? KeychainStore.load(account: draftAccount(for: conversation)) else { return WorkspaceComposerDraft() }
+        return WorkspaceComposerDraft.restore(data)
+    }
+
+    func saveComposerDraft(_ draft: WorkspaceComposerDraft, for conversation: WorkspaceConversation) {
         let account = draftAccount(for: conversation)
-        if text.isEmpty { KeychainStore.delete(account: account); return }
-        do { try KeychainStore.save(Data(text.utf8), account: account) }
+        if draft.isEmpty { KeychainStore.delete(account: account); return }
+        do { try KeychainStore.save(try JSONEncoder().encode(draft), account: account) }
         catch { lastError = localized("Could not save the draft: ", "无法保存草稿：") + error.localizedDescription }
     }
 

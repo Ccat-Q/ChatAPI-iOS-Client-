@@ -16,6 +16,7 @@ struct MoreView: View {
                         NavigationLink(localized("Audit Log", "审计日志")) { AuditLogView() }
                     }
                     NavigationLink(localized("Keys & Models", "密钥与模型")) { KeysAndModelsView() }
+                    NavigationLink(localized("AI Completion", "AI 自动补全")) { AIAssistSettingsView() }
                     NavigationLink(localized("Automation Rules", "自动化规则")) { AutomationRulesView() }
                     if capabilities?.features.contains("bark") == true {
                         NavigationLink(localized("Bark Notifications", "Bark 通知")) { BarkSettingsView() }

@@ -47,6 +47,7 @@ import Observation
         try persist(updated)
         clearSession(for: instance)
         KeychainStore.deleteAccounts(withPrefix: "workspace-draft.\(instance.id.uuidString).")
+        KeychainStore.deleteAccounts(withPrefix: "ai-assist.\(instance.id.uuidString).")
         instances = updated
         if selectedID == instance.id { select(instances.first?.id) }
     }

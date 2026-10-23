@@ -146,9 +146,10 @@ struct WorkspaceTimelineMessage: Codable, Sendable, Identifiable, Hashable {
     let content: String
     let createdAt: Date
     let contentParts: [WorkspaceContentPart]?
+    let metadata: [String: JSONValue]?
 
     enum CodingKeys: String, CodingKey {
-        case id, role, content
+        case id, role, content, metadata
         case createdAt = "created_at"
         case contentParts = "content_parts"
     }

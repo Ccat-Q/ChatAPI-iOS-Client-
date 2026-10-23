@@ -10,6 +10,7 @@
 | [开发与验证](development.md) | GitHub Actions 编译、回归测试、IPA 与真机验收 |
 | [故障排查](troubleshooting.md) | 登录、连接、设置、通知和构建问题 |
 | [本次审查](reviews/2026-10-22-project-audit.md) | 问题证据、修复、验证与未覆盖项 |
+| [会话与网络后续审查](reviews/2026-10-23-session-network-followup.md) | 认证跨实例操作、迟到结果、响应大小、静默断网与同源判断 |
 | [领域术语](../CONTEXT.md) | Operator、Workspace、Request 等术语 |
 
 现有架构决策继续有效：

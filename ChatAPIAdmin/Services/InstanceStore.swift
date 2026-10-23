@@ -2,6 +2,12 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class InstanceStore {
+    struct SessionAccess: Sendable {
+        let client: APIClient
+        fileprivate let instanceID: UUID
+        fileprivate let userID: String
+        fileprivate let generation: UUID
+    }
     private(set) var instances: [Instance] = []
     private(set) var selectedID: UUID?
     private var authenticatedID: UUID?
@@ -108,6 +114,24 @@ import Observation
         }
         cachedClient = client
         return client
+    }
+
+    func authenticatedAccess() -> SessionAccess? {
+        guard let instance = selected, hasSession(for: instance), let user = sessionUser,
+              let client = client() else { return nil }
+        return SessionAccess(client: client, instanceID: instance.id, userID: user.id, generation: clientGeneration)
+    }
+
+    func isCurrent(_ access: SessionAccess) -> Bool {
+        selectedID == access.instanceID && authenticatedID == access.instanceID &&
+            sessionUser?.id == access.userID && clientGeneration == access.generation && !Task.isCancelled
+    }
+
+    func authorizeSession(using authenticate: @MainActor () async -> Bool) async -> SessionAccess? {
+        // Capture the destination before authentication suspends. Never look up a
+        // replacement client for an action that belongs to a different session.
+        guard let access = authenticatedAccess(), await authenticate(), isCurrent(access) else { return nil }
+        return access
     }
 
     private func sessionExpired(for instance: Instance, generation: UUID) {

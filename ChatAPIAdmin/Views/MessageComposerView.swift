@@ -47,7 +47,7 @@ struct MessageComposerView: View {
                         .accessibilityLabel(isGenerating ? localized("Cancel AI completion", "取消 AI 补全") : localized("Generate AI suggestion", "生成 AI 建议"))
                         Menu {
                             Button(localized("Completion Instructions", "补全要求"), systemImage: "text.badge.plus") { showInstruction.toggle() }
-                            Toggle(localized("Automatic Suggestions", "自动建议"), isOn: Binding(get: { automatic }, set: onAutomatic)).disabled(!configured)
+                            Toggle(localized("Automatic Suggestions", "自动建议"), isOn: Binding(get: { automatic }, set: { value in onAutomatic(value) })).disabled(!configured)
                             Button(localized("Assistant Model Settings", "辅助模型设置"), systemImage: "slider.horizontal.3", action: onConfigure)
                         } label: {
                             Image(systemName: "ellipsis").frame(width: 26, height: 26)

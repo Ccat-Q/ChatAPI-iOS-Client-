@@ -8,6 +8,7 @@
 | 工作台、时间线、历史分页 | 可用 | 可用 | owner 范围，`/api/ws` |
 | 助手回复、工具调用、工具结果 | 可用 | 可用 | 浮动液态玻璃编辑区，各模式独立草稿，服务端确认后清空 |
 | AI 自动补全 | 可用 | 可用 | 独立配置兼容 API；文本、工具参数和工具结果建议，预览采纳后手动发送 |
+| 应用锁开关 | 可用 | 可用 | “更多 → 应用安全”关闭启动/返回前台认证；不影响敏感操作独立认证 |
 | 应用密钥、模型密钥、虚拟模型 | 可用 | 可用 | 显示与撤销密钥需要设备认证 |
 | 自动化规则 | 可用 | 可用 | schema 3 的基础文本、工具动作与播放参数；高级动作只读 |
 | Bark 配置与测试 | 按能力显示 | 按能力显示 | 仅服务端能力声明包含 `bark` 时出现 |
@@ -53,6 +54,8 @@ GET 与 DELETE 不发送 JSON 请求体；空的 2xx 响应只可用于无需返
 ## WebSocket
 
 客户端连接 `wss://<instance>/api/ws` 并使用现有 Cookie。处理 `workspace.snapshot`、`conversation.upsert/remove`、`timeline.reset/append`、`workspace.command_ack/error` 和分页事件。订阅使用 `timeline.subscribe`，取消订阅使用 `timeline.unsubscribe`，分页使用 `conversation.page.get` 与 `command_id`、`cursor`。
+
+恢复会话由入口验证一次，工作台握手直接使用 Cookie，切换标签保留连接；首次快照 15 秒未到达则失败并重连。握手 401 清理当前会话，403 保留会话并显示权限错误。重连等待可手动跳过，不自动重发业务命令。
 
 发送统一使用：
 

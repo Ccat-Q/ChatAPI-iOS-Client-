@@ -39,6 +39,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/ws":
             return self.websocket()
         if self.path == "/api/auth/session":
+            self.server.session_requests = getattr(self.server, "session_requests", 0) + 1
             mode = getattr(self.server, "session_mode", "normal")
             if mode == "server-error":
                 return self.reply({"error": "temporary failure"}, 503)
@@ -48,6 +49,8 @@ class Handler(BaseHTTPRequestHandler):
             if mode == "expired":
                 authenticated = False
             return self.reply({"authenticated": authenticated, "user": {"id": "u1", "username": "operator", "role": "admin"} if authenticated else None})
+        if self.path == "/fixture/connection-stats":
+            return self.reply({"sessions": getattr(self.server, "session_requests", 0), "sockets": getattr(self.server, "websocket_requests", 0)})
         if self.path == "/fixture/unauthorized":
             return self.reply({"error": "expired"}, 401)
         if self.path == "/fixture/forbidden":
@@ -89,6 +92,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({"choices": [{"message": {"role": "assistant", "content": text}}]})
         if self.path == "/fixture/session-mode":
             self.server.session_mode = body["mode"]
+            return self.reply({"ok": True})
+        if self.path == "/fixture/workspace-mode":
+            self.server.workspace_mode = body["mode"]
             return self.reply({"ok": True})
         if self.path == "/api/auth/login":
             if body == {"username": "operator", "password": "password", "totp": "123456"}:
@@ -135,15 +141,20 @@ class Handler(BaseHTTPRequestHandler):
         return first & 15, data
 
     def websocket(self):
-        if "fixture_session=valid" not in self.headers.get("Cookie", ""):
+        self.server.websocket_requests = getattr(self.server, "websocket_requests", 0) + 1
+        mode = getattr(self.server, "workspace_mode", "normal")
+        if mode == "unauthorized" or "fixture_session=valid" not in self.headers.get("Cookie", ""):
             return self.reply({"error": "unauthorized"}, 401)
+        if mode == "forbidden" or self.headers.get("Origin") != f"http://127.0.0.1:{self.server.server_port}":
+            return self.reply({"error": "forbidden"}, 403)
         accept = base64.b64encode(hashlib.sha1((self.headers["Sec-WebSocket-Key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
         self.send_response(101)
         self.send_header("Upgrade", "websocket")
         self.send_header("Connection", "Upgrade")
         self.send_header("Sec-WebSocket-Accept", accept)
         self.end_headers()
-        self.write_frame({"type": "workspace.snapshot", "conversations": [CONVERSATION], "has_more": True, "next_cursor": "page-1"})
+        if mode != "no-snapshot":
+            self.write_frame({"type": "workspace.snapshot", "conversations": [CONVERSATION], "has_more": True, "next_cursor": "page-1"})
         try:
             while True:
                 opcode, data = self.read_frame()

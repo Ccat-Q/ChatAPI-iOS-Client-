@@ -28,7 +28,18 @@ struct ChatAPIAdminApp: App {
                             .overlay { Image(systemName: "lock.shield").font(.largeTitle).foregroundStyle(.secondary) }
                     }
                 }
-                .task { if !isUIPreview { store.restore(); if scenePhase == .active { lock.unlockAutomatically() } } }
+                .task {
+                    if !isUIPreview {
+                        lock.setEnabled(settings.requiresAppUnlock)
+                        store.restore()
+                        if scenePhase == .active { lock.unlockAutomatically() }
+                    }
+                }
+                .onChange(of: settings.requiresAppUnlock) { _, enabled in
+                    guard !isUIPreview else { return }
+                    lock.setEnabled(enabled)
+                    if scenePhase == .active { lock.unlockAutomatically() }
+                }
                 .onChange(of: scenePhase) { _, phase in
                     guard !isUIPreview else { return }
                     if phase == .background { lock.lock(); store.invalidateValidation() }

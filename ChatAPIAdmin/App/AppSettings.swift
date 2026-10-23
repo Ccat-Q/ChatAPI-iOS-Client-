@@ -9,8 +9,14 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 }
 
 @MainActor @Observable final class AppSettings {
-    var language: AppLanguage { didSet { UserDefaults.standard.set(language.rawValue, forKey: "app-language") } }
-    init() { language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: "app-language") ?? "system") ?? .system }
+    var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: "app-language") } }
+    var requiresAppUnlock: Bool { didSet { defaults.set(requiresAppUnlock, forKey: "requires-app-unlock") } }
+    @ObservationIgnored private let defaults: UserDefaults
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        language = AppLanguage(rawValue: defaults.string(forKey: "app-language") ?? "system") ?? .system
+        requiresAppUnlock = defaults.object(forKey: "requires-app-unlock") as? Bool ?? true
+    }
 }
 
 func localized(_ english: String, _ chinese: String) -> String {

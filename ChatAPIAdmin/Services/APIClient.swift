@@ -24,7 +24,7 @@ actor APIClient {
     deinit { session.invalidateAndCancel() }
 
     func sessionInfo() async throws -> SessionResponse {
-        let response: SessionResponse = try await get("/api/auth/session")
+        let response: SessionResponse = try await request("/api/auth/session", method: "GET", body: EmptyBody(), timeout: 15)
         if !response.authenticated || response.user == nil { await onUnauthorized?() }
         return response
     }
@@ -37,6 +37,7 @@ actor APIClient {
         components.fragment = nil
         guard let url = components.url else { return nil }
         var request = URLRequest(url: url)
+        request.timeoutInterval = 15
         request.httpShouldHandleCookies = true
         if let cookies = HTTPCookieStorage.shared.cookies(for: instance.baseURL) {
             for (field, value) in HTTPCookie.requestHeaderFields(with: cookies) { request.setValue(value, forHTTPHeaderField: field) }
@@ -44,6 +45,13 @@ actor APIClient {
         request.setValue(instance.baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")), forHTTPHeaderField: "Origin")
         return request
     }
+
+    func workspaceSocket() -> URLSessionWebSocketTask? {
+        guard let request = workspaceRequest() else { return nil }
+        return session.webSocketTask(with: request)
+    }
+
+    func workspaceSessionRejected() async { await onUnauthorized?() }
 
     func absoluteURL(for pathOrURL: String) -> URL? {
         guard let url = URL(string: pathOrURL, relativeTo: instance.baseURL)?.absoluteURL,
@@ -65,11 +73,12 @@ actor APIClient {
     func put<T: Decodable & Sendable, Body: Encodable & Sendable>(_ path: String, body: Body) async throws -> T { try await request(path, method: "PUT", body: body) }
     func delete<T: Decodable & Sendable>(_ path: String) async throws -> T { try await request(path, method: "DELETE", body: EmptyBody()) }
 
-    private func request<T: Decodable & Sendable, Body: Encodable & Sendable>(_ path: String, method: String, body: Body?) async throws -> T {
+    private func request<T: Decodable & Sendable, Body: Encodable & Sendable>(_ path: String, method: String, body: Body?, timeout: TimeInterval = 60) async throws -> T {
         guard let url = URL(string: path, relativeTo: instance.baseURL)?.absoluteURL,
               url.scheme == instance.baseURL.scheme, url.host == instance.baseURL.host, url.port == instance.baseURL.port,
               url.user == nil, url.password == nil else { throw APIError.invalidResponse }
         var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
         request.httpMethod = method
         request.httpShouldHandleCookies = true
         request.setValue("application/json", forHTTPHeaderField: "Accept")

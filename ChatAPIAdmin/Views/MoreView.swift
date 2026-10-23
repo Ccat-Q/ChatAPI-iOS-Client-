@@ -27,6 +27,13 @@ struct MoreView: View {
                         ForEach(AppLanguage.allCases) { Text($0.title).tag($0) }
                     }
                 }
+                Section {
+                    Toggle(localized("Face ID / Device Passcode Lock", "Face ID / 设备密码锁"), isOn: $settings.requiresAppUnlock)
+                } header: {
+                    Text(localized("App Security", "应用安全"))
+                } footer: {
+                    Text(localized("Require device authentication when opening or returning to the app. Sensitive management actions still require authentication when this is off.", "开启后，启动或返回应用时需要设备验证。关闭后，敏感管理操作仍需验证身份。"))
+                }
                 Section(localized("Instance", "实例")) {
                     Picker(localized("Current Instance", "当前实例"), selection: Binding(get: { store.selectedID }, set: { store.select($0) })) {
                         ForEach(store.instances) { Text($0.name).tag(Optional($0.id)) }

@@ -55,5 +55,32 @@ extension CoreRegressions {
         contexts[3].finish(.success(true))
         await Task.yield()
         try check(lock.phase == .locked && !lock.isAuthenticating, "A stale unlock result must not reopen the app")
+
+        let suiteName = "authentication-regression.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = AppSettings(defaults: defaults)
+        try check(settings.requiresAppUnlock, "Existing installs must keep app authentication enabled by default")
+        settings.requiresAppUnlock = false
+        try check(!AppSettings(defaults: defaults).requiresAppUnlock, "Disabling app authentication must survive settings reload")
+        lock.setEnabled(false)
+        lock.lock(); lock.unlockAutomatically(); lock.unlock()
+        await Task.yield()
+        try check(lock.phase == .unlocked && contexts.count == 4, "Disabled app authentication must not prompt at launch or after background lock")
+        try check(lock.shouldHideContent(isBackground: true, isInactive: false), "Disabling app authentication must retain the background privacy shield")
+        let sensitive = Task { @MainActor in await lock.authenticate(reason: "Sensitive action with app lock disabled") }
+        try await waitUntil("Disabling app lock incorrectly bypassed sensitive authentication") { contexts.count == 5 && contexts[4].started }
+        contexts[4].finish(.success(true))
+        try check(await sensitive.value, "Sensitive actions must still require and accept real device authentication when app lock is disabled")
+        lock.setEnabled(true)
+        try check(lock.phase == .locked, "Re-enabling app lock must take effect immediately")
+        lock.unlockAutomatically()
+        try await waitUntil("Re-enabled app lock did not authenticate") { contexts.count == 6 && contexts[5].started }
+        lock.setEnabled(false)
+        try check(contexts[5].invalidated && lock.phase == .unlocked, "Disabling must invalidate an in-flight unlock")
+        lock.setEnabled(true)
+        contexts[5].finish(.success(true))
+        await Task.yield()
+        try check(lock.phase == .locked, "A result from before a settings change must not unlock the re-enabled app")
     }
 }

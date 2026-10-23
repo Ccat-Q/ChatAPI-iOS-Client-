@@ -38,6 +38,7 @@ enum DeviceAuthenticationMethod: Sendable {
 @MainActor @Observable final class AppLock {
     enum Phase { case locked, unlocked }
     private(set) var phase: Phase = .locked
+    private(set) var isEnabled = true
     private(set) var isAuthenticating = false
     private(set) var method: DeviceAuthenticationMethod = .passcode
     private(set) var message: String?
@@ -56,12 +57,18 @@ enum DeviceAuthenticationMethod: Sendable {
     }
 
     func unlockAutomatically() {
-        guard !attemptedAutomaticUnlock else { return }
+        guard isEnabled, !attemptedAutomaticUnlock else { return }
         unlock()
     }
 
+    func setEnabled(_ enabled: Bool) {
+        guard enabled != isEnabled else { return }
+        isEnabled = enabled
+        lock()
+    }
+
     func unlock() {
-        guard phase == .locked, !isAuthenticating else { return }
+        guard isEnabled, phase == .locked, !isAuthenticating else { return }
         attemptedAutomaticUnlock = true
         let context = makeContext()
         let attempt = UUID()
@@ -98,7 +105,7 @@ enum DeviceAuthenticationMethod: Sendable {
         isAuthenticating = false
         attemptedAutomaticUnlock = false
         message = nil
-        phase = .locked
+        phase = isEnabled ? .locked : .unlocked
     }
 
     func authenticate(reason: String) async -> Bool {

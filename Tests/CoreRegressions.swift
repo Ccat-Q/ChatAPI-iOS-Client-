@@ -29,6 +29,7 @@ private actor UnauthorizedCounter {
         try settingsAndURLs()
         try keychainUpdates()
         try await networkAndWorkspace()
+        try await connectionSpeedAndRecovery()
         try await sessionRecovery()
         try await authenticationRegressions()
         try await aiRegressions()
@@ -164,6 +165,51 @@ private actor UnauthorizedCounter {
         try check(workspace.state == .disconnected, "Cancelled connect must not resurrect a socket")
     }
 
+    static func connectionSpeedAndRecovery() async throws {
+        struct Mode: Encodable, Sendable { let mode: String }
+        struct Stats: Decodable, Sendable { let sessions: Int; let sockets: Int }
+        let instance = Instance(id: UUID(), name: "Connection fixture", baseURL: URL(string: "http://127.0.0.1:\(CommandLine.arguments[1])/")!, allowsInsecureHTTP: true, capabilities: nil)
+        let counter = UnauthorizedCounter()
+        let client = APIClient(instance: instance) { await counter.increment() }
+        try await client.login(username: "operator", password: "password", totp: "123456")
+        let workspace = WorkspaceConnection(client: client, instance: instance, userID: "u1", snapshotTimeout: .milliseconds(500))
+        defer { workspace.disconnect() }
+        let before: Stats = try await client.get("/fixture/connection-stats")
+        let _: SuccessResponse = try await client.post("/fixture/session-mode", body: Mode(mode: "server-error"))
+        workspace.connect(); workspace.connect()
+        try await waitUntil("Workspace unnecessarily waited for a second REST session validation") { workspace.state == .connected }
+        let after: Stats = try await client.get("/fixture/connection-stats")
+        try check(after.sessions == before.sessions && after.sockets == before.sockets + 1, "Connecting must authenticate directly over one WebSocket without an extra REST round trip")
+        try await Task.sleep(for: .milliseconds(650))
+        try check(workspace.state == .connected, "A successful snapshot must cancel its connection deadline")
+        workspace.disconnect()
+        let _: SuccessResponse = try await client.post("/fixture/workspace-mode", body: Mode(mode: "no-snapshot"))
+        workspace.connect()
+        try await waitUntil("A missing first snapshot must fail within the configured deadline") { if case .failed = workspace.state { return true }; return false }
+        let _: SuccessResponse = try await client.post("/fixture/workspace-mode", body: Mode(mode: "normal"))
+        workspace.retryNow()
+        try await waitUntil("Manual retry did not bypass reconnect backoff") { workspace.state == .connected }
+        try await Task.sleep(for: .milliseconds(1100))
+        let retried: Stats = try await client.get("/fixture/connection-stats")
+        try check(retried.sockets == after.sockets + 2 && workspace.state == .connected, "Manual retry must cancel both the old timeout and scheduled reconnect")
+        workspace.disconnect()
+        let _: SuccessResponse = try await client.post("/fixture/workspace-mode", body: Mode(mode: "unauthorized"))
+        workspace.connect()
+        try await waitUntil("WebSocket 401 must invalidate the owning session") { if case .failed = workspace.state { return true }; return false }
+        try await Task.sleep(for: .milliseconds(100))
+        try check(await counter.count == 1, "WebSocket handshake 401 must notify the owning session once")
+        workspace.disconnect()
+        let _: SuccessResponse = try await client.post("/fixture/workspace-mode", body: Mode(mode: "forbidden"))
+        workspace.connect()
+        try await waitUntil("WebSocket 403 must fail promptly") { if case .failed = workspace.state { return true }; return false }
+        try await Task.sleep(for: .milliseconds(1100))
+        let denied: Stats = try await client.get("/fixture/connection-stats")
+        try check(await counter.count == 1 && denied.sockets == retried.sockets + 2, "403 must preserve the session and must not enter an automatic reconnect loop")
+        workspace.disconnect()
+        let _: SuccessResponse = try await client.post("/fixture/workspace-mode", body: Mode(mode: "normal"))
+        let _: SuccessResponse = try await client.post("/fixture/session-mode", body: Mode(mode: "normal"))
+    }
+
     static func sessionRecovery() async throws {
         // The runner is disposable, but restore shared storage even if an assertion fails.
         let previousInstances = try KeychainStore.load(account: "instances")
@@ -182,7 +228,17 @@ private actor UnauthorizedCounter {
         added.append(first)
         try await store.signIn(username: "operator", password: "password", totp: "123456", to: first)
         try check(store.hasSession(for: first) && store.sessionUser?.id == "u1", "Sign-in must establish a verified user")
+        let originalClient = store.client()!
+        try check(originalClient === store.client()!, "Views must reuse the selected instance's HTTP session")
+        struct Stats: Decodable, Sendable { let sessions: Int; let sockets: Int }
+        let signedInStats: Stats = try await originalClient.get("/fixture/connection-stats")
+        await store.refreshSession()
+        let refreshedStats: Stats = try await originalClient.get("/fixture/connection-stats")
+        try check(signedInStats.sessions == refreshedStats.sessions, "An already verified foreground session must not be revalidated")
+        store.select(first.id)
+        try check(store.hasSession(for: first), "Selecting the current instance must not restart authentication and connections")
         store.invalidateValidation()
+        try check(originalClient !== store.client()!, "Invalidation must isolate the next session from old client callbacks")
         try check(!store.hasSession(for: first) && store.hasStoredSession(for: first), "A saved marker must not grant access")
         struct Mode: Encodable, Sendable { let mode: String }
         let client = APIClient(instance: first)
@@ -192,6 +248,8 @@ private actor UnauthorizedCounter {
         let _: SuccessResponse = try await client.post("/fixture/session-mode", body: Mode(mode: "normal"))
         await store.refreshSession()
         try check(store.hasSession(for: first), "Retry must restore a valid Cookie session")
+        do { let _: SuccessResponse = try await originalClient.get("/fixture/unauthorized") } catch APIError.unauthorized {}
+        try check(store.hasSession(for: first), "An old client's late 401 must not revoke the newly validated session")
         let _: SuccessResponse = try await client.post("/fixture/session-mode", body: Mode(mode: "expired"))
         store.invalidateValidation()
         await store.refreshSession()

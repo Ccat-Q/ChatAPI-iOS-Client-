@@ -1,35 +1,33 @@
 import SwiftUI
 
 struct OverviewView: View {
-    @Environment(InstanceStore.self) private var store
-    @State private var workspace: WorkspaceConnection?
+    let workspace: WorkspaceConnection
 
     var body: some View {
         NavigationStack {
-            Group {
-                if let workspace {
-                    List {
-                        ForEach(workspace.conversations) { conversation in
-                        NavigationLink { OperatorConversationView(conversation: conversation, workspace: workspace) } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(conversation.title.isEmpty ? localized("Untitled conversation", "未命名会话") : conversation.title).font(.headline)
-                                Text(conversation.lastMessagePreview.isEmpty ? conversation.lastUserText : conversation.lastMessagePreview).lineLimit(2).foregroundStyle(.secondary)
-                                Text(conversation.status).font(.caption).foregroundStyle(.tertiary)
-                            }.padding(.vertical, 4)
-                        }
-                        }
-                        if workspace.hasMore { Button(localized("Load More Conversations", "加载更多会话")) { workspace.loadMore() }.disabled(workspace.loadingMore || workspace.state != .connected) }
+            List {
+                ForEach(workspace.conversations) { conversation in
+                    NavigationLink { OperatorConversationView(conversation: conversation, workspace: workspace) } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(conversation.title.isEmpty ? localized("Untitled conversation", "未命名会话") : conversation.title).font(.headline)
+                            Text(conversation.lastMessagePreview.isEmpty ? conversation.lastUserText : conversation.lastMessagePreview).lineLimit(2).foregroundStyle(.secondary)
+                            Text(conversation.status).font(.caption).foregroundStyle(.tertiary)
+                        }.padding(.vertical, 4)
                     }
-                    .overlay { if workspace.conversations.isEmpty { ContentUnavailableView(localized("No conversations", "暂无会话"), systemImage: "bubble.left.and.bubble.right") } }
-                    .safeAreaInset(edge: .bottom) { connectionStatus(workspace) }
-                    .alert(localized("Workspace action failed", "工作台操作失败"), isPresented: Binding(get: { workspace.lastError != nil }, set: { if !$0 { workspace.lastError = nil } })) {
-                        Button(localized("OK", "好"), role: .cancel) { workspace.lastError = nil }
-                    } message: { Text(workspace.lastError ?? "") }
-                } else { ProgressView() }
+                }
+                if workspace.hasMore { Button(localized("Load More Conversations", "加载更多会话")) { workspace.loadMore() }.disabled(workspace.loadingMore || workspace.state != .connected) }
             }
+            .overlay {
+                if workspace.conversations.isEmpty {
+                    if workspace.state == .connected { ContentUnavailableView(localized("No conversations", "暂无会话"), systemImage: "bubble.left.and.bubble.right") }
+                    else if workspace.state == .connecting { ProgressView(localized("Loading workspace…", "正在加载工作台…")) }
+                }
+            }
+            .safeAreaInset(edge: .bottom) { connectionStatus(workspace) }
+            .alert(localized("Workspace action failed", "工作台操作失败"), isPresented: Binding(get: { workspace.lastError != nil }, set: { if !$0 { workspace.lastError = nil } })) {
+                Button(localized("OK", "好"), role: .cancel) { workspace.lastError = nil }
+            } message: { Text(workspace.lastError ?? "") }
             .navigationTitle(localized("Workspace", "工作台"))
-            .task { await startWorkspace() }
-            .onDisappear { workspace?.disconnect() }
         }
     }
 
@@ -37,17 +35,13 @@ struct OverviewView: View {
         switch workspace.state {
         case .connected: EmptyView()
         case .connecting: Label(localized("Connecting…", "正在连接…"), systemImage: "antenna.radiowaves.left.and.right").font(.caption).padding(8).glassEffect()
-        case .failed(let message): Label(message, systemImage: "wifi.exclamationmark").font(.caption).padding(8).glassEffect()
+        case .failed(let message):
+            HStack {
+                Label(message, systemImage: "wifi.exclamationmark").font(.caption)
+                Button(localized("Reconnect Now", "立即重连")) { workspace.retryNow() }.buttonStyle(.glass)
+            }.padding(8).glassEffect()
         case .disconnected: EmptyView()
         }
-    }
-
-    private func startWorkspace() async {
-        if let workspace { workspace.connect(); return }
-        guard let client = store.client(), let instance = store.selected, let user = store.sessionUser else { return }
-        let connection = WorkspaceConnection(client: client, instance: instance, userID: user.id)
-        workspace = connection
-        connection.connect()
     }
 }
 

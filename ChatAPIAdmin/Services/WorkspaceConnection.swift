@@ -16,6 +16,8 @@ import Observation
     private var socket: URLSessionWebSocketTask?
     private var receiver: Task<Void, Never>?
     private var reconnect: Task<Void, Never>?
+    private var connectionTimeout: Task<Void, Never>?
+    private let snapshotTimeout: Duration
     private var connectionID = UUID()
     private var retryCount = 0
     private var subscription: String?
@@ -32,10 +34,11 @@ import Observation
     private(set) var loadingMore = false
     var lastError: String?
 
-    init(client: APIClient, instance: Instance, userID: String) {
+    init(client: APIClient, instance: Instance, userID: String, snapshotTimeout: Duration = .seconds(15)) {
         self.client = client
         self.instance = instance
         self.userID = userID
+        self.snapshotTimeout = snapshotTimeout
     }
 
     func connect() {
@@ -43,26 +46,20 @@ import Observation
         let id = UUID()
         connectionID = id
         state = .connecting
+        connectionTimeout = Task { [weak self, snapshotTimeout] in
+            do { try await Task.sleep(for: snapshotTimeout) } catch { return }
+            self?.scheduleReconnect(for: id, message: localized("Workspace connection timed out. Reconnecting…", "工作台连接超时，正在重连…"))
+        }
         receiver = Task { [weak self] in
             guard let self else { return }
-            do {
-                let session = try await self.client.sessionInfo()
-                guard session.authenticated, session.user != nil else {
-                    self.disconnect()
-                    self.state = .failed(localized("Please sign in again.", "请重新登录。"))
-                    return
-                }
-            } catch {
-                if !Task.isCancelled { self.scheduleReconnect(for: id) }
-                return
-            }
-            guard !Task.isCancelled, self.connectionID == id else { return }
-            guard let request = await self.client.workspaceRequest() else {
+            // RootView already validated the restored session. The WebSocket
+            // handshake authenticates its own Cookie; no second REST round trip.
+            guard let task = await self.client.workspaceSocket() else {
                 self.disconnect()
                 self.state = .failed(localized("Invalid server address.", "服务器地址无效。"))
                 return
             }
-            let task = URLSession.shared.webSocketTask(with: request)
+            guard !Task.isCancelled, self.connectionID == id else { task.cancel(); return }
             task.maximumMessageSize = 1_048_576
             self.socket = task
             task.resume()
@@ -77,7 +74,12 @@ import Observation
                     }
                 }
             } catch {
-                if !Task.isCancelled { self.scheduleReconnect(for: id) }
+                guard !Task.isCancelled, self.connectionID == id else { return }
+                if let status = (task.response as? HTTPURLResponse)?.statusCode, status == 401 || status == 403 {
+                    self.disconnect()
+                    self.state = .failed(status == 401 ? localized("Please sign in again.", "请重新登录。") : localized("Workspace access was denied. Check account permissions and proxy settings.", "工作台访问被拒绝，请检查账号权限与代理设置。"))
+                    if status == 401 { await self.client.workspaceSessionRejected() }
+                } else { self.scheduleReconnect(for: id) }
             }
         }
     }
@@ -85,11 +87,18 @@ import Observation
     func disconnect() {
         connectionID = UUID()
         reconnect?.cancel(); reconnect = nil
+        connectionTimeout?.cancel(); connectionTimeout = nil
         receiver?.cancel(); receiver = nil
         socket?.cancel(with: .goingAway, reason: nil); socket = nil
         failPending(localized("Connection closed. Your draft is retained.", "连接已关闭，草稿已保留。"))
         resetPageRequest()
         state = .disconnected
+    }
+
+    func retryNow() {
+        disconnect()
+        retryCount = 0
+        connect()
     }
 
     func subscribe(to conversation: WorkspaceConversation) {
@@ -193,6 +202,7 @@ import Observation
                 removedIDs.removeAll()
                 resetPageRequest()
                 state = .connected
+                connectionTimeout?.cancel(); connectionTimeout = nil
                 retryCount = 0
                 if let subscription { send(["type": "timeline.subscribe", "conversation_id": subscription]) }
             case "conversation.page":
@@ -276,16 +286,17 @@ import Observation
         loadingMore = false
     }
 
-    private func scheduleReconnect(for id: UUID) {
+    private func scheduleReconnect(for id: UUID, message: String? = nil) {
         guard connectionID == id, reconnect == nil else { return }
         connectionID = UUID()
+        connectionTimeout?.cancel(); connectionTimeout = nil
         receiver?.cancel(); receiver = nil
         socket?.cancel(with: .goingAway, reason: nil); socket = nil
         failPending(localized("Connection lost. Check the timeline before retrying; your draft is retained.", "连接已断开。重试前请检查时间线，草稿已保留。"))
         resetPageRequest()
-        retryCount = min(retryCount + 1, 5)
-        let delay = min(pow(2, Double(retryCount)), 30)
-        state = .failed(localized("Realtime connection lost. Reconnecting…", "实时连接已断开，正在重连…"))
+        retryCount = min(retryCount + 1, 6)
+        let delay = min(pow(2, Double(retryCount - 1)), 30)
+        state = .failed(message ?? localized("Realtime connection lost. Reconnecting…", "实时连接已断开，正在重连…"))
         reconnect = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(delay)) } catch { return }
             guard let self else { return }

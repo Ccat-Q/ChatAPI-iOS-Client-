@@ -7,6 +7,8 @@ import Observation
     private var authenticatedID: UUID?
     private var restored = false
     private var validationID = UUID()
+    private var clientGeneration = UUID()
+    @ObservationIgnored private var cachedClient: APIClient?
     private(set) var sessionUser: SessionUser?
     private(set) var isCheckingSession = false
     private(set) var sessionError: String?
@@ -26,6 +28,7 @@ import Observation
 
     func select(_ id: UUID?) {
         guard id == nil || instances.contains(where: { $0.id == id }) else { return }
+        guard selectedID != id else { return }
         invalidateValidation()
         selectedID = id
         UserDefaults.standard.set(id?.uuidString, forKey: "selected-instance")
@@ -88,6 +91,8 @@ import Observation
 
     func invalidateValidation() {
         validationID = UUID()
+        clientGeneration = UUID()
+        cachedClient = nil
         authenticatedID = nil
         sessionUser = nil
         isCheckingSession = false
@@ -96,25 +101,30 @@ import Observation
 
     func client() -> APIClient? {
         guard let instance = selected else { return nil }
-        return APIClient(instance: instance) { [weak self] in
-            await self?.sessionExpired(for: instance)
+        if let cachedClient { return cachedClient }
+        let generation = clientGeneration
+        let client = APIClient(instance: instance) { [weak self] in
+            await self?.sessionExpired(for: instance, generation: generation)
         }
+        cachedClient = client
+        return client
     }
 
-    private func sessionExpired(for instance: Instance) {
-        guard selectedID == instance.id else { return }
+    private func sessionExpired(for instance: Instance, generation: UUID) {
+        guard selectedID == instance.id, clientGeneration == generation else { return }
         clearSession(for: instance)
     }
 
     func refreshSession() async {
-        guard let instance = selected, hasStoredSession(for: instance), !isCheckingSession else { return }
+        guard let instance = selected, hasStoredSession(for: instance), !hasSession(for: instance), !isCheckingSession,
+              let client = client() else { return }
         let attempt = UUID()
         validationID = attempt
         isCheckingSession = true
         sessionError = nil
         defer { if validationID == attempt { isCheckingSession = false } }
         do {
-            let session = try await APIClient(instance: instance).sessionInfo()
+            let session = try await client.sessionInfo()
             guard selectedID == instance.id, validationID == attempt, !Task.isCancelled else { return }
             guard session.authenticated, let user = session.user else { clearSession(for: instance); return }
             authenticatedID = instance.id

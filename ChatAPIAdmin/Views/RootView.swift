@@ -4,6 +4,13 @@ import UIKit
 struct RootView: View {
     @Environment(InstanceStore.self) private var store
     @Environment(AppLock.self) private var lock
+    @Environment(\.scenePhase) private var scenePhase
+
+    private struct SessionCheck: Equatable {
+        let instanceID: UUID?
+        let unlocked: Bool
+        let active: Bool
+    }
 
     var body: some View {
         Group {
@@ -24,8 +31,8 @@ struct RootView: View {
             else { AdminTabView().id(store.selectedID) }
         }
         .tint(.cyan)
-        .task(id: lock.phase == .unlocked ? store.selectedID : nil) {
-            if lock.phase == .unlocked { await store.refreshSession() }
+        .task(id: SessionCheck(instanceID: store.selectedID, unlocked: lock.phase == .unlocked, active: scenePhase == .active)) {
+            if lock.phase == .unlocked, scenePhase == .active { await store.refreshSession() }
         }
         .alert(localized("Storage Error", "存储错误"), isPresented: Binding(get: { store.storageError != nil }, set: { if !$0 { store.storageError = nil } })) {
             Button(localized("OK", "好"), role: .cancel) {}
@@ -76,12 +83,24 @@ struct LockView: View {
 
 struct AdminTabView: View {
     @Environment(InstanceStore.self) private var store
+    @State private var workspace: WorkspaceConnection?
     var body: some View {
         TabView {
-            OverviewView().tabItem { Label(localized("Workspace", "工作台"), systemImage: "bubble.left.and.bubble.right.fill") }
+            Group {
+                if let workspace { OverviewView(workspace: workspace) }
+                else { ProgressView() }
+            }.tabItem { Label(localized("Workspace", "工作台"), systemImage: "bubble.left.and.bubble.right.fill") }
             if store.sessionUser?.isAdministrator == true { ActivityView().tabItem { Label(localized("Requests", "请求"), systemImage: "arrow.trianglehead.2.clockwise") } }
             if store.sessionUser?.isAdministrator == true { UsersView().tabItem { Label(localized("Users", "用户"), systemImage: "person.2.fill") } }
             MoreView().tabItem { Label(localized("More", "更多"), systemImage: "ellipsis.circle.fill") }
         }
+        .task {
+            if let workspace { workspace.connect(); return }
+            guard let client = store.client(), let instance = store.selected, let user = store.sessionUser else { return }
+            let connection = WorkspaceConnection(client: client, instance: instance, userID: user.id)
+            workspace = connection
+            connection.connect()
+        }
+        .onDisappear { workspace?.disconnect() }
     }
 }

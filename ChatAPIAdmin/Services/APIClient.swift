@@ -56,7 +56,7 @@ actor APIClient {
     func absoluteURL(for pathOrURL: String) -> URL? {
         guard let url = URL(string: pathOrURL, relativeTo: instance.baseURL)?.absoluteURL,
               url.user == nil, url.password == nil,
-              url.scheme == "https" || (instance.allowsInsecureHTTP && url.scheme == "http" && url.host == instance.baseURL.host && url.port == instance.baseURL.port) else { return nil }
+              url.scheme == "https" || (instance.allowsInsecureHTTP && url.scheme == "http" && url.hasSameOrigin(as: instance.baseURL)) else { return nil }
         return url
     }
 
@@ -75,7 +75,7 @@ actor APIClient {
 
     private func request<T: Decodable & Sendable, Body: Encodable & Sendable>(_ path: String, method: String, body: Body?, timeout: TimeInterval = 60) async throws -> T {
         guard let url = URL(string: path, relativeTo: instance.baseURL)?.absoluteURL,
-              url.scheme == instance.baseURL.scheme, url.host == instance.baseURL.host, url.port == instance.baseURL.port,
+              url.hasSameOrigin(as: instance.baseURL),
               url.user == nil, url.password == nil else { throw APIError.invalidResponse }
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
@@ -88,15 +88,20 @@ actor APIClient {
         }
         if method != "GET", method != "DELETE", let body { request.httpBody = try JSONEncoder().encode(body); request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         do {
-            let (fileURL, response) = try await session.download(for: request)
-            defer { try? FileManager.default.removeItem(at: fileURL) }
-            let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
-            guard (attributes[.size] as? NSNumber)?.intValue ?? 0 < 1_048_576 else {
-                throw APIError.server(localized("The server response exceeded the 1 MiB safety limit.", "服务器响应超过了 1 MiB 安全限制。"))
-            }
-            let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            let (bytes, response) = try await session.bytes(for: request)
+            defer { bytes.task.cancel() }
             guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
             if http.statusCode == 401 { await onUnauthorized?(); throw APIError.unauthorized }
+            let limit = 1_048_576
+            func oversized() -> APIError { .server(localized("The server response exceeded the 1 MiB safety limit.", "服务器响应超过了 1 MiB 安全限制。")) }
+            guard response.expectedContentLength <= limit else { throw oversized() }
+            var data = Data()
+            for try await byte in bytes {
+                if data.count % 4096 == 0 { try Task.checkCancellation() }
+                guard data.count < limit else { throw oversized() }
+                data.append(byte)
+            }
+            try Task.checkCancellation()
             guard (200..<300).contains(http.statusCode) else { throw APIError.server(String(data: data, encoding: .utf8) ?? "Request failed (\(http.statusCode)).") }
             if data.isEmpty, let success = SuccessResponse(ok: true) as? T { return success }
             return try JSONDecoder.chatAPI.decode(T.self, from: data)
@@ -109,12 +114,28 @@ private struct EmptyBody: Encodable, Sendable {}
 private final class APIRedirectPolicy: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         guard let original = task.originalRequest?.url, let target = request.url,
-              target.scheme == original.scheme, target.host == original.host, target.port == original.port,
+              target.hasSameOrigin(as: original),
               target.user == nil, target.password == nil else {
             completionHandler(nil)
             return
         }
         completionHandler(request)
+    }
+}
+
+extension URL {
+    func hasSameOrigin(as other: URL) -> Bool {
+        func effectivePort(_ url: URL) -> Int? {
+            if let port = url.port { return port }
+            switch url.scheme?.lowercased() {
+            case "https", "wss": return 443
+            case "http", "ws": return 80
+            default: return nil
+            }
+        }
+        guard let scheme = scheme?.lowercased(), let host = host?.lowercased(),
+              let otherHost = other.host?.lowercased() else { return false }
+        return scheme == other.scheme?.lowercased() && host == otherHost && effectivePort(self) == effectivePort(other)
     }
 }
 

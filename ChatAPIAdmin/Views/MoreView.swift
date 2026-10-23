@@ -170,14 +170,16 @@ private struct SettingsDomainView: View {
     }
 
     private func save() async {
-        guard !saving, !pendingPatch.isEmpty, let client = store.client() else { return }
+        guard !saving, !pendingPatch.isEmpty, let access = store.authenticatedAccess() else { return }
         saving = true
         defer { saving = false }
         if isRisky {
             guard await lock.authenticate(reason: localized("Authenticate to apply sensitive server settings", "验证身份以应用敏感服务器设置")) else { return }
         }
+        guard store.isCurrent(access) else { return }
         do {
-            let response: SettingsPatchResponse = try await client.patch("/api/admin/settings/\(domain.domain)", body: SettingsPatchInput(values: pendingPatch))
+            let response: SettingsPatchResponse = try await access.client.patch("/api/admin/settings/\(domain.domain)", body: SettingsPatchInput(values: pendingPatch))
+            guard store.isCurrent(access) else { return }
             document = response.result.document; values = response.result.document.values
             textEdits = [:]; pendingPatch = [:]
             var messages = response.result.warnings ?? []
@@ -185,7 +187,7 @@ private struct SettingsDomainView: View {
                 messages.append(localized("Restart required for: ", "以下设置需要重启：") + restart.joined(separator: ", "))
             }
             notice = messages.isEmpty ? localized("Changes applied.", "更改已应用。") : messages.joined(separator: "\n")
-        } catch { self.error = error.localizedDescription }
+        } catch { if store.isCurrent(access) { self.error = error.localizedDescription } }
     }
 }
 

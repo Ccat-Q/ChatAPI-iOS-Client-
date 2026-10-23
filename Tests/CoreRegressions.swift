@@ -30,6 +30,7 @@ private actor UnauthorizedCounter {
         try keychainUpdates()
         try await networkAndWorkspace()
         try await connectionSpeedAndRecovery()
+        try await boundedResponsesAndHeartbeat()
         try await sessionRecovery()
         try await authenticationRegressions()
         try await aiRegressions()
@@ -68,6 +69,10 @@ private actor UnauthorizedCounter {
     }
 
     static func settingsAndURLs() throws {
+        try check(URL(string: "https://EXAMPLE.com:443/x")!.hasSameOrigin(as: URL(string: "https://example.com/")!), "HTTPS default port redirects must stay same-origin")
+        try check(URL(string: "http://example.com:80/x")!.hasSameOrigin(as: URL(string: "http://example.com/")!), "HTTP default port redirects must stay same-origin")
+        try check(!URL(string: "https://example.com:444/")!.hasSameOrigin(as: URL(string: "https://example.com/")!), "Non-default ports must remain different origins")
+        try check(!URL(string: "http://example.com:443/")!.hasSameOrigin(as: URL(string: "https://example.com/")!), "Default-port normalization must not permit TLS downgrades")
         let document = try decode(SettingsDocument.self, #"{"domain":"test","title":"Test","values":{"count":2,"readonly":"safe","secret":"old","structured":{"x":1}},"fields":[{"key":"count","title":"Count","type":"integer","description":"","editable":true,"sensitive":false,"restart_required":false,"minimum":0,"maximum":10},{"key":"readonly","title":"Read only","type":"string","description":"","editable":false,"sensitive":false,"restart_required":false},{"key":"secret","title":"Secret","type":"string","description":"","editable":true,"sensitive":true,"restart_required":false},{"key":"structured","title":"Structured","type":"object","description":"","editable":true,"sensitive":false,"restart_required":false}]}"#)
         var edits = document.values
         edits["readonly"] = .string("overwrite")
@@ -210,6 +215,51 @@ private actor UnauthorizedCounter {
         let _: SuccessResponse = try await client.post("/fixture/session-mode", body: Mode(mode: "normal"))
     }
 
+    static func boundedResponsesAndHeartbeat() async throws {
+        struct Mode: Encodable, Sendable { let mode: String }
+        struct Stats: Decodable, Sendable { let pings: Int; let chunkedBytes: Int
+            enum CodingKeys: String, CodingKey { case pings; case chunkedBytes = "chunked_bytes" }
+        }
+        let instance = Instance(id: UUID(), name: "Bounded fixture", baseURL: URL(string: "http://127.0.0.1:\(CommandLine.arguments[1])/")!, allowsInsecureHTTP: true, capabilities: nil)
+        let client = APIClient(instance: instance)
+        var headerRequestFinished = false
+        var headerFailure: String?
+        let declared = Task { @MainActor in
+            defer { headerRequestFinished = true }
+            do { let _: SuccessResponse = try await client.get("/fixture/oversize-headers"); return false }
+            catch APIError.server { return true }
+            catch { headerFailure = String(reflecting: error); return false }
+        }
+        defer { declared.cancel() }
+        try await waitUntil("Declared oversized responses must fail before the remaining body is released") { headerRequestFinished }
+        let _: SuccessResponse = try await client.post("/fixture/release-large-body", body: EmptyRequest())
+        try check(await declared.value, "An oversized Content-Length must be rejected before downloading the remaining body: \(headerFailure ?? "unexpected success")")
+        do { let _: SuccessResponse = try await client.get("/fixture/oversize-chunked"); try check(false, "Chunked oversized response was accepted") }
+        catch APIError.server { try check(true, "Unknown-size responses must be bounded while streaming") }
+        let stats: Stats = try await client.get("/fixture/connection-stats")
+        try check(stats.chunkedBytes < 8 * 1_048_576, "The client must stop the chunked transfer before the full oversized body is sent")
+
+        try await client.login(username: "operator", password: "password", totp: "123456")
+        let workspace = WorkspaceConnection(client: client, instance: instance, userID: "u1", heartbeatInterval: .milliseconds(100), heartbeatTimeout: .milliseconds(500))
+        defer { workspace.disconnect() }
+        workspace.connect()
+        try await waitUntil("Heartbeat fixture did not connect") { workspace.state == .connected }
+        try await Task.sleep(for: .milliseconds(700))
+        let healthy: Stats = try await client.get("/fixture/connection-stats")
+        try check(healthy.pings > stats.pings && workspace.state == .connected, "A responsive socket must receive pings and remain connected")
+        let _: SuccessResponse = try await client.post("/fixture/workspace-mode", body: Mode(mode: "no-pong"))
+        try await waitUntil("A silently unresponsive socket must leave connected state") { if case .failed = workspace.state { return true }; return false }
+        try check(workspace.state != .connected, "Missing pong must trigger reconnect rather than leave a false connected state")
+        let _: SuccessResponse = try await client.post("/fixture/workspace-mode", body: Mode(mode: "normal"))
+        workspace.retryNow()
+        try await waitUntil("Heartbeat recovery did not reconnect") { workspace.state == .connected }
+        try await Task.sleep(for: .milliseconds(700))
+        try check(workspace.state == .connected, "Old heartbeat callbacks must not disconnect the replacement socket")
+        workspace.disconnect()
+        try await Task.sleep(for: .milliseconds(650))
+        try check(workspace.state == .disconnected, "Disconnect must cancel heartbeat deadlines and prevent reconnect")
+    }
+
     static func sessionRecovery() async throws {
         // The runner is disposable, but restore shared storage even if an assertion fails.
         let previousInstances = try KeychainStore.load(account: "instances")
@@ -256,10 +306,41 @@ private actor UnauthorizedCounter {
         try check(!store.hasStoredSession(for: first) && store.sessionUser == nil, "Explicitly unauthenticated sessions must clear the marker")
         let _: SuccessResponse = try await client.post("/fixture/session-mode", body: Mode(mode: "normal"))
         try await store.signIn(username: "operator", password: "password", totp: "123456", to: first)
+        let originalAccess = store.authenticatedAccess()!
+        try check(store.isCurrent(originalAccess), "A verified session must provide bound operation access")
         try store.add(name: "Fixture Two", url: url, allowsInsecureHTTP: true)
         let second = store.selected!
         added.append(second)
+        try check(!store.isCurrent(originalAccess) && store.authenticatedAccess() == nil, "Switching instances must invalidate pending actions and must not grant access before validation")
         store.select(first.id)
+        await store.refreshSession()
+        var authentication: CheckedContinuation<Bool, Never>?
+        let protected = Task { @MainActor in
+            await store.authorizeSession(using: { await withCheckedContinuation { authentication = $0 } })
+        }
+        try await waitUntil("Protected operation did not await authentication") { authentication != nil }
+        store.select(second.id)
+        authentication?.resume(returning: true)
+        let abandoned = await protected.value
+        try check(abandoned == nil, "Authentication finishing after an instance switch must not obtain the new instance's client")
+        store.select(first.id)
+        await store.refreshSession()
+        let access = await store.authorizeSession(using: { true })
+        try check(access != nil && store.isCurrent(access!), "Successful authorization must preserve the original verified session")
+        store.invalidateValidation()
+        await store.refreshSession()
+        try check(!store.isCurrent(access!), "Revalidating the same instance and user must reject old operation generations")
+        let denied = await store.authorizeSession(using: { false })
+        try check(denied == nil, "Cancelled device authentication must not grant operation access")
+        authentication = nil
+        let cancelled = Task { @MainActor in
+            await store.authorizeSession(using: { await withCheckedContinuation { authentication = $0 } })
+        }
+        try await waitUntil("Cancellation fixture did not authenticate") { authentication != nil }
+        cancelled.cancel()
+        authentication?.resume(returning: true)
+        try check(await cancelled.value == nil, "A cancelled operation must not become authorized later")
+        store.invalidateValidation()
         let _: SuccessResponse = try await client.post("/fixture/session-mode", body: Mode(mode: "slow"))
         let refreshing = Task { @MainActor in await store.refreshSession() }
         try await Task.sleep(for: .milliseconds(50))

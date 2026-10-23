@@ -5,6 +5,7 @@ import json
 import struct
 import sys
 import time
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CONVERSATION = {"id": "c1", "title": "Fixture", "last_user_text": "Hello", "last_message_preview": "Hello", "request_id": "r1", "status": "waiting", "updated_at": "2026-10-22T12:00:00.123456789Z"}
@@ -50,13 +51,42 @@ class Handler(BaseHTTPRequestHandler):
                 authenticated = False
             return self.reply({"authenticated": authenticated, "user": {"id": "u1", "username": "operator", "role": "admin"} if authenticated else None})
         if self.path == "/fixture/connection-stats":
-            return self.reply({"sessions": getattr(self.server, "session_requests", 0), "sockets": getattr(self.server, "websocket_requests", 0)})
+            return self.reply({"sessions": getattr(self.server, "session_requests", 0), "sockets": getattr(self.server, "websocket_requests", 0), "pings": getattr(self.server, "ping_requests", 0), "chunked_bytes": getattr(self.server, "chunked_bytes", 0)})
         if self.path == "/fixture/unauthorized":
             return self.reply({"error": "expired"}, 401)
         if self.path == "/fixture/forbidden":
             return self.reply({"error": "forbidden"}, 403)
         if self.path == "/fixture/oversize":
             return self.reply({"text": "x" * 1_048_576})
+        if self.path == "/fixture/oversize-headers":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(8 * 1_048_576))
+            self.end_headers()
+            # Supply the first byte so Foundation may finish response setup/MIME
+            # handling; the remaining multi-MiB body stays behind an explicit gate.
+            self.wfile.write(b"{")
+            self.wfile.flush()
+            # A download-then-check implementation still cannot finish this request.
+            self.server.large_body_gate.wait(10)
+            self.close_connection = True
+            return
+        if self.path == "/fixture/oversize-chunked":
+            self.send_response(200)
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            chunk = b"x" * 65_536
+            self.server.chunked_bytes = 0
+            try:
+                for _ in range(128):
+                    self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
+                    self.wfile.flush()
+                    self.server.chunked_bytes += len(chunk)
+                    time.sleep(0.04)
+                self.wfile.write(b"0\r\n\r\n")
+            except (BrokenPipeError, ConnectionResetError):
+                self.close_connection = True
+            return
         if self.path == "/fixture/headers":
             return self.reply({"origin": self.headers.get("Origin", ""), "authorization": self.headers.get("Authorization", "")})
         if self.path in ["/fixture/redirect-local", "/fixture/redirect-external"]:
@@ -69,6 +99,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = json.loads(self.body() or b"{}")
+        if self.path == "/fixture/release-large-body":
+            self.server.large_body_gate.set()
+            return self.reply({"ok": True})
         if self.path in ["/ai/chat/completions", "/ai/responses"]:
             if self.headers.get("Cookie") or self.headers.get("Origin") or self.headers.get("Authorization") != "Bearer ai-fixture":
                 return self.reply({"error": "AI request leaked session data or used the wrong key"}, 403)
@@ -161,7 +194,9 @@ class Handler(BaseHTTPRequestHandler):
                 if opcode == 8:
                     return
                 if opcode == 9:
-                    self.write_frame(data, 10)
+                    self.server.ping_requests = getattr(self.server, "ping_requests", 0) + 1
+                    if getattr(self.server, "workspace_mode", "normal") != "no-pong":
+                        self.write_frame(data, 10)
                     continue
                 value = json.loads(data)
                 if value["type"] == "timeline.subscribe":
@@ -187,6 +222,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+server.large_body_gate = threading.Event()
 with open(sys.argv[1], "w", encoding="utf-8") as output:
     output.write(str(server.server_port))
 server.serve_forever()

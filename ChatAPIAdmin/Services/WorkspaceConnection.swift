@@ -18,6 +18,11 @@ import Observation
     private var reconnect: Task<Void, Never>?
     private var connectionTimeout: Task<Void, Never>?
     private let snapshotTimeout: Duration
+    private let heartbeatInterval: Duration
+    private let heartbeatTimeout: Duration
+    private var heartbeat: Task<Void, Never>?
+    private var pongTimeout: Task<Void, Never>?
+    private var pendingPingID: UUID?
     private var connectionID = UUID()
     private var retryCount = 0
     private var subscription: String?
@@ -34,11 +39,13 @@ import Observation
     private(set) var loadingMore = false
     var lastError: String?
 
-    init(client: APIClient, instance: Instance, userID: String, snapshotTimeout: Duration = .seconds(15)) {
+    init(client: APIClient, instance: Instance, userID: String, snapshotTimeout: Duration = .seconds(15), heartbeatInterval: Duration = .seconds(20), heartbeatTimeout: Duration = .seconds(10)) {
         self.client = client
         self.instance = instance
         self.userID = userID
         self.snapshotTimeout = snapshotTimeout
+        self.heartbeatInterval = heartbeatInterval
+        self.heartbeatTimeout = heartbeatTimeout
     }
 
     func connect() {
@@ -86,6 +93,7 @@ import Observation
 
     func disconnect() {
         connectionID = UUID()
+        stopHeartbeat()
         reconnect?.cancel(); reconnect = nil
         connectionTimeout?.cancel(); connectionTimeout = nil
         receiver?.cancel(); receiver = nil
@@ -204,6 +212,7 @@ import Observation
                 state = .connected
                 connectionTimeout?.cancel(); connectionTimeout = nil
                 retryCount = 0
+                startHeartbeat()
                 if let subscription { send(["type": "timeline.subscribe", "conversation_id": subscription]) }
             case "conversation.page":
                 let page = try JSONDecoder.chatAPI.decode(WorkspaceConversationPage.self, from: data)
@@ -286,9 +295,50 @@ import Observation
         loadingMore = false
     }
 
+    private func startHeartbeat() {
+        stopHeartbeat()
+        let id = connectionID
+        let interval = heartbeatInterval
+        heartbeat = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: interval) } catch { return }
+                guard let self, self.connectionID == id, self.state == .connected else { return }
+                self.sendHeartbeat(for: id)
+            }
+        }
+    }
+
+    private func sendHeartbeat(for id: UUID) {
+        guard pendingPingID == nil, let socket else { return }
+        let pingID = UUID()
+        pendingPingID = pingID
+        let timeout = heartbeatTimeout
+        pongTimeout = Task { [weak self] in
+            do { try await Task.sleep(for: timeout) } catch { return }
+            guard let self, self.connectionID == id, self.pendingPingID == pingID else { return }
+            self.scheduleReconnect(for: id, message: localized("Connection stopped responding. Reconnecting…", "连接无响应，正在重连…"))
+        }
+        socket.sendPing { [weak self] error in
+            let failed = error != nil
+            Task { @MainActor [weak self] in
+                guard let self, self.connectionID == id, self.pendingPingID == pingID else { return }
+                self.pongTimeout?.cancel(); self.pongTimeout = nil
+                self.pendingPingID = nil
+                if failed { self.scheduleReconnect(for: id) }
+            }
+        }
+    }
+
+    private func stopHeartbeat() {
+        heartbeat?.cancel(); heartbeat = nil
+        pongTimeout?.cancel(); pongTimeout = nil
+        pendingPingID = nil
+    }
+
     private func scheduleReconnect(for id: UUID, message: String? = nil) {
         guard connectionID == id, reconnect == nil else { return }
         connectionID = UUID()
+        stopHeartbeat()
         connectionTimeout?.cancel(); connectionTimeout = nil
         receiver?.cancel(); receiver = nil
         socket?.cancel(with: .goingAway, reason: nil); socket = nil

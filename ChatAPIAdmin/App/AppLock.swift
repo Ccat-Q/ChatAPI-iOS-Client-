@@ -18,7 +18,7 @@ enum DeviceAuthenticationMethod: Sendable {
 @MainActor private final class SystemAuthenticationContext: DeviceAuthenticationContext {
     private let context = LAContext()
     var method: DeviceAuthenticationMethod {
-        _ = context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else { return .passcode }
         switch context.biometryType {
         case .faceID: return .faceID
         case .touchID: return .touchID

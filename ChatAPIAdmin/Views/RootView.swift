@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @Environment(InstanceStore.self) private var store
@@ -57,7 +58,7 @@ struct LockView: View {
                         .buttonStyle(.glassProminent).controlSize(.large)
                     }
                     if let message = lock.message {
-                        Text(message).font(.callout).foregroundStyle(.secondary).accessibilityLiveRegion(.polite)
+                        Text(message).font(.callout).foregroundStyle(.secondary)
                     }
                 }
                 .multilineTextAlignment(.center)
@@ -66,6 +67,9 @@ struct LockView: View {
                 .frame(maxWidth: .infinity, minHeight: geometry.size.height)
             }
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        }
+        .onChange(of: lock.message) { _, message in
+            if let message { UIAccessibility.post(notification: .announcement, argument: message) }
         }
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct MessageComposerView: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -29,7 +30,7 @@ struct MessageComposerView: View {
             if let suggestion { suggestionCard(suggestion) }
             if let aiError {
                 Text(aiError).font(.caption).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading)
-                    .lineLimit(4).accessibilityLiveRegion(.polite)
+                    .lineLimit(4)
             }
             GlassEffectContainer(spacing: 10) {
                 VStack(spacing: 10) {
@@ -70,6 +71,9 @@ struct MessageComposerView: View {
             }
         }
         .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 8)
+        .onChange(of: aiError) { _, message in
+            if let message { UIAccessibility.post(notification: .announcement, argument: message) }
+        }
     }
 
     @ViewBuilder private var editorSurface: some View {

@@ -4,7 +4,9 @@ import Security
 enum KeychainStore {
     static func save(_ value: Data, account: String) throws {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrAccount as String: account]
-        SecItemDelete(query as CFDictionary)
+        let update = SecItemUpdate(query as CFDictionary, [kSecValueData as String: value] as CFDictionary)
+        if update == errSecSuccess { return }
+        guard update == errSecItemNotFound else { throw KeychainError.unexpected(update) }
         var item = query
         item[kSecValueData as String] = value
         item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
@@ -22,6 +24,16 @@ enum KeychainStore {
     }
 
     static func delete(account: String) { SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrAccount as String: account] as CFDictionary) }
+
+    static func deleteAccounts(withPrefix prefix: String) {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitAll]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let items = result as? [[String: Any]] else { return }
+        for item in items {
+            if let account = item[kSecAttrAccount as String] as? String, account.hasPrefix(prefix) { delete(account: account) }
+        }
+    }
 }
 
 enum KeychainError: Error { case unexpected(OSStatus) }

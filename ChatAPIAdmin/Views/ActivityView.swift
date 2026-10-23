@@ -25,15 +25,16 @@ private struct ActivityDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showConfirm = false
     @State private var error: String?
+    @State private var aborting = false
     var body: some View {
         Form {
             Section(localized("Details", "详情")) {
                 LabeledContent(localized("Status", "状态"), value: item.kind)
                 if let detail = item.detail { Text(detail) }
             }
-            if item.kind == "pending" {
+            if ["pending", "waiting", "streaming"].contains(item.kind), let conversationID = item.conversationID, !conversationID.isEmpty {
                 Section {
-                    Button(localized("Abort Request", "中止请求"), role: .destructive) { showConfirm = true }
+                    Button(localized("Abort Request", "中止请求"), role: .destructive) { showConfirm = true }.disabled(aborting)
                 }
             }
         }
@@ -47,5 +48,13 @@ private struct ActivityDetailView: View {
             Button(localized("OK", "好"), role: .cancel) {}
         } message: { Text(error ?? "") }
     }
-    private func abort() async { guard let client = store.client(), let conversationID = item.conversationID, !conversationID.isEmpty else { return }; do { let _: SuccessResponse = try await client.post("/api/admin/conversations/\(conversationID)/abort", body: EmptyRequest()); dismiss() } catch { self.error = error.localizedDescription } }
+    private func abort() async {
+        guard !aborting, let client = store.client(), let conversationID = item.conversationID, !conversationID.isEmpty else { return }
+        aborting = true
+        defer { aborting = false }
+        do {
+            let _: SuccessResponse = try await client.post("/api/admin/conversations/\(conversationID)/abort", body: AbortConversationInput(reason: "Aborted by the operator from the iOS client"))
+            dismiss()
+        } catch { self.error = error.localizedDescription }
+    }
 }

@@ -16,7 +16,7 @@ struct InstanceSetupView: View {
                     Toggle(localized("Allow HTTP for development", "允许开发环境使用 HTTP"), isOn: $allowsHTTP)
                 }
                 Section { Button(localized("Save Instance", "保存实例")) { save() }.frame(maxWidth: .infinity) }
-                footer: { Text(localized("QR import can populate this form with a non-secret instance URL.", "二维码导入可填入不含密钥的实例地址。")) }
+                footer: { Text(localized("Use the server root URL, for example https://chat.example.com.", "请使用服务器根地址，例如 https://chat.example.com。")) }
             }
             .navigationTitle(localized("ChatAPI Admin", "ChatAPI 管理"))
             .alert(localized("Cannot Add Instance", "无法添加实例"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button(localized("OK", "好"), role: .cancel) {} } message: { Text(error ?? "") }
@@ -24,7 +24,7 @@ struct InstanceSetupView: View {
     }
 
     private func save() {
-        guard let url = URL(string: address), !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { error = localized("Enter an instance name and valid URL.", "请输入实例名称和有效地址。"); return }
+        guard let url = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines)), !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { error = localized("Enter an instance name and valid URL.", "请输入实例名称和有效地址。"); return }
         do { try store.add(name: name, url: url, allowsInsecureHTTP: allowsHTTP) } catch { self.error = error.localizedDescription }
     }
 }

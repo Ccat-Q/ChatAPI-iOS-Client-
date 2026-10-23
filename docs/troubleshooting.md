@@ -39,12 +39,14 @@ Bark 入口取决于 `/api/mobile/v1/capabilities` 是否成功声明 `bark`。�
 
 ## Actions 失败
 
-依次查看 SDK 检查、回归测试、归档、打包步骤。
+先查看 `regressions`、`archive`、`screenshots` 三个并行任务，再查看 `build` 汇总；归档成功不代表回归或截图成功。
 
 - SDK 检查失败：确认 `macos-26` runner 镜像提供 Xcode/iOS 26+，不要降低部署目标来掩盖 SDK 缺失。
 - 回归失败：查看首个具体断言或 Swift 编译错误；测试服务只绑定随机本地端口，不需要生产凭据。
 - 归档失败：查看首个 Swift / actool 错误；勿仅凭末尾的 `ARCHIVE FAILED` 判断根因。
 - dSYM 不存在：确认 Release 归档使用 `DEBUG_INFORMATION_FORMAT=dwarf-with-dsym`。
+- 缓存命中后没有新截图是精确输入复用，任务摘要会明确说明；源码或工具链变化会重建。疑似缓存损坏时删除对应 Actions 缓存或递增缓存键版本，不能跳过失败检查。
+- 并行任务仍排队时检查 macOS runner 并发额度；不应把排队时间当成编译耗时。
 - IPA 不能安装：本工作流产物未签名，需自行签名；归档成功不等于设备签名有效。
 
 将运行链接、提交 SHA、首个相关错误和复现步骤附在问题描述中。不要附真实密码、Cookie、密钥或未脱敏请求内容。

@@ -8,15 +8,28 @@
 
 - 触发：推送 `main`、创建/更新 PR，或手动 `workflow_dispatch`。
 - 环境：`macos-26`，首先输出 Xcode 和 SDK，并检查 iOS SDK 主版本至少 26。
-- 顺序：回归测试 → Release unsigned archive → IPA/dSYM 打包 → artifact 上传 → Debug 模拟器界面截图。
-- 同一分支的新运行取消旧运行，单次上限 25 分钟，仓库权限只有 `contents: read`。
+- 三个 macOS 任务并行：`regressions` 执行回归，`archive` 归档并上传 IPA/dSYM，`screenshots` 构建/截取或精确复用固定预览截图。`build` 在 Ubuntu 汇总，任何子任务失败或取消都不能通过；保留原检查名称，避免分支规则只检查成功的归档。
+- 同一分支的新运行取消旧运行，各 macOS 任务上限 15 分钟，汇总上限 2 分钟，仓库权限只有 `contents: read`。并行需要三个 macOS runner，额度不足时会排队；降低墙钟时间不等于降低总 runner 分钟数。
 - 不需要 Apple 签名凭据，不自动分发、发布或合并 PR。
 
 开发时先在修复分支更新文件并建立 PR，在 Checks 查看结果。验证未完成前保持 Draft；不要把过去一次绿灯当成当前提交已经通过。
 
+## 缓存与耗时
+
+缓存分别保存在 `.ci-cache/regressions`、`.ci-cache/archive`、`.ci-cache/screenshots`，已加入 gitignore。键包含任务类型、CPU、Xcode/Swift、iOS/模拟器 SDK、macOS build、runner image 版本和相关源码/工程/脚本/工作流的哈希，工具链升级不会恢复旧编译产物。文档不参与编译输入哈希。
+
+- 回归程序只在**精确命中**且可执行文件存在时复用，每次仍启动全新的模拟服务器并运行全部断言。未命中重新编译，不用旧输入的程序代替新代码。
+- 归档始终执行 xcodebuild 和打包。持久 DerivedData 可复用编译缓存，部分命中只供 Xcode 检查依赖并重建，不能跳过归档。
+- 截图缓存同时保存模拟器 DerivedData 和完整的五张固定样例 PNG。只有相关源码、资源与环境完全一致且五张 PNG 存在、头部与尺寸有效时才复用；摘要明确标注“复用，无新模拟器运行”。部分命中或缺图会清除旧图并重新生成，不能把旧界面冒充新界面。
+- 需要新截图时，模拟器启动/迁移与 Debug 构建重叠。只编译 runner 本机架构，关闭截图构建的优化、索引和 dSYM；Release 仍生成 dSYM。IPA、dSYM ZIP 和 PNG 上传关闭二次压缩。
+
+缓存仅含构建输出与固定预览图片，不包含 Keychain、Cookie、实例配置、整个模拟器设备或其系统数据。缓存未命中、损坏或不可写时按脚本重建；若需强制重新截图，可删除对应 Actions 缓存或递增工作流键中的版本。所有任务仍默认运行，未用路径过滤隐藏必需检查。
+
+性能基线为 [Actions #40](https://github.com/Ccat-Q/ChatAPI-iOS-Client-/actions/runs/39901737408)：串行 job 4 分 37 秒，其中回归 21 秒、归档 25 秒、截图 3 分 35 秒；缓存恢复约 1 秒、保存约 2 秒。新方案须分别测量首次未命中和精确命中的运行；排队和 runner 启动时间独立于编译耗时。
+
 ## 自动回归
 
-Actions 调用 `bash scripts/ci-regressions.sh`：在 runner 的临时目录编译项目实际模型、APIClient、KeychainStore、InstanceStore、WorkspaceConnection 、AppSettings、AppLock 和辅助模型服务，再运行 `Tests/CoreRegressions.swift`。不复制一份实现进行测试。
+Actions 调用 `bash scripts/ci-regressions.sh`：未精确命中时编译项目实际模型、APIClient、KeychainStore、InstanceStore、WorkspaceConnection 、AppSettings、AppLock 和辅助模型服务，再运行 `Tests/CoreRegressions.swift`。不复制一份实现进行测试，临时模块缓存与服务状态在退出时清理。
 
 Python 标准库模拟服务 `Tests/Fixtures/server.py` 只监听 runner 的 `127.0.0.1` 随机端口，提供 Cookie REST 和 WebSocket 协议。不依赖生产实例、Bark 密钥或第三方账号。退出时关闭服务、删除临时目录；涉及会话恢复的测试还原共享实例记录。
 
@@ -31,6 +44,8 @@ Python 标准库模拟服务 `Tests/Fixtures/server.py` 只监听 runner 的 `12
 - 会话恢复先验证、临时服务故障保留标记、过期清理、跨实例异步结果不能串写。
 
 模拟服务验证客户端契约，不替代与真实服务器的集成验收。生产协议应核对 [功能与协议](features-and-protocol.md) 中固定版本的服务端源码。
+
+回归任务先运行 `python3 Tests/CICacheGuards.py`，验证精确/部分/损坏截图缓存的处理及缓存测试程序仍被每轮执行。该脚本只以临时命令替身检查缓存控制流，不把替身结果当作 Swift 回归或真实截图；实际 133 项 Swift 断言另行运行。
 
 认证与 AI 回归还覆盖：认证取消后不自动循环、后台遮挡与旧认证回调失效；独立 API 凭据且无 Cookie、两种协议、工具 schema、网络取消、旧建议隔离、自动建议去抖与模式草稿迁移。
 

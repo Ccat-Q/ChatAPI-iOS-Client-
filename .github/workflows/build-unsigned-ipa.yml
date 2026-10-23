@@ -6,51 +6,95 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ios-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  checks:
+    name: ${{ matrix.target }}
     runs-on: macos-26
-    timeout-minutes: 25
-    permissions:
-      contents: read
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [regressions, archive, screenshots]
     steps:
-      - uses: actions/checkout@v4
-      - name: Verify Xcode and iOS SDK
-        run: |
-          xcodebuild -version
-          xcodebuild -showsdks
-          xcrun --sdk iphoneos --show-sdk-version | awk -F. '{ if ($1 < 26) exit 1 }'
-      - name: Run protocol and connection regressions
-        run: bash scripts/ci-regressions.sh
-      - name: Restore Xcode build cache
-        uses: actions/cache@v4
+      - uses: actions/checkout@v5
+      - name: Verify toolchain and identify cache environment
+        id: environment
+        run: bash scripts/ci-environment.sh
+      - name: Restore target cache
+        uses: actions/cache@v5
+        id: cache
         with:
-          path: ~/Library/Developer/Xcode/DerivedData
-          key: xcode-${{ runner.os }}-${{ hashFiles('ChatAPIAdmin.xcodeproj/project.pbxproj', 'ChatAPIAdmin/**/*.swift') }}
-          restore-keys: |
-            xcode-${{ runner.os }}-
+          path: .ci-cache/${{ matrix.target }}
+          key: ios-ci-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.environment.outputs.toolchain }}-${{ matrix.target }}-${{ matrix.target == 'regressions' && hashFiles('ChatAPIAdmin/Models/**', 'ChatAPIAdmin/Services/**', 'ChatAPIAdmin/App/**', 'Tests/**', 'scripts/ci-regressions.sh', 'scripts/ci-environment.sh', '.github/workflows/build-unsigned-ipa.yml') || hashFiles('ChatAPIAdmin/**', 'ChatAPIAdmin.xcodeproj/**', 'scripts/ci-screenshots.sh', 'scripts/ci-environment.sh', '.github/workflows/build-unsigned-ipa.yml') }}
+          # Only Xcode may reuse a partial cache. Executable tests require an exact key.
+          restore-keys: ${{ matrix.target != 'regressions' && format('ios-ci-v1-{0}-{1}-{2}-{3}-', runner.os, runner.arch, steps.environment.outputs.toolchain, matrix.target) || '' }}
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: '2'
+      - name: Run protocol and connection regressions
+        if: matrix.target == 'regressions'
+        run: |
+          python3 Tests/CICacheGuards.py
+          bash scripts/ci-regressions.sh
+        env:
+          CI_REGRESSION_CACHE_DIR: .ci-cache/regressions
+          CI_REGRESSION_CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
       - name: Build unsigned archive
-        run: xcodebuild -project ChatAPIAdmin.xcodeproj -scheme ChatAPIAdmin -configuration Release -sdk iphoneos -archivePath "$PWD/build/ChatAPIAdmin.xcarchive" archive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEBUG_INFORMATION_FORMAT=dwarf-with-dsym
+        if: matrix.target == 'archive'
+        run: >-
+          xcodebuild -project ChatAPIAdmin.xcodeproj -scheme ChatAPIAdmin
+          -configuration Release -sdk iphoneos -destination 'generic/platform=iOS'
+          -derivedDataPath "$PWD/.ci-cache/archive/DerivedData"
+          -archivePath "$PWD/build/ChatAPIAdmin.xcarchive" archive
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          DEBUG_INFORMATION_FORMAT=dwarf-with-dsym COMPILER_INDEX_STORE_ENABLE=NO
       - name: Package IPA and symbols
+        if: matrix.target == 'archive'
         run: |
           mkdir -p build/Payload
           cp -R build/ChatAPIAdmin.xcarchive/Products/Applications/ChatAPIAdmin.app build/Payload/
           ditto -c -k --sequesterRsrc --keepParent build/Payload build/ChatAPIAdmin-unsigned.ipa
           ditto -c -k --sequesterRsrc --keepParent build/ChatAPIAdmin.xcarchive/dSYMs build/ChatAPIAdmin.dSYM.zip
-      - uses: actions/upload-artifact@v4
+      - name: Upload IPA and symbols
+        if: matrix.target == 'archive'
+        uses: actions/upload-artifact@v6
         with:
           name: ChatAPIAdmin-unsigned
+          compression-level: 0
+          if-no-files-found: error
           path: |
             build/ChatAPIAdmin-unsigned.ipa
             build/ChatAPIAdmin.dSYM.zip
-      - name: Capture simulator UI screenshots
+      - name: Capture or reuse simulator UI screenshots
+        if: matrix.target == 'screenshots'
         run: bash scripts/ci-screenshots.sh
-      - uses: actions/upload-artifact@v4
-        if: always()
+        env:
+          CI_SCREENSHOTS_CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+      - name: Upload UI screenshots
+        if: always() && matrix.target == 'screenshots'
+        uses: actions/upload-artifact@v6
         with:
           name: ChatAPIAdmin-UI-screenshots
           path: build/screenshots/*.png
+          compression-level: 0
           if-no-files-found: ignore
+
+  # Keep the original required check name. A successful archive alone is insufficient.
+  build:
+    if: always()
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every parallel job to pass
+        env:
+          CHECK_RESULT: ${{ needs.checks.result }}
+        run: |
+          printf 'Parallel checks: %s\n' "$CHECK_RESULT" >> "$GITHUB_STEP_SUMMARY"
+          test "$CHECK_RESULT" = success

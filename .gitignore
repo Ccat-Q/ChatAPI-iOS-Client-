@@ -1,5 +1,6 @@
 DerivedData/
 build/
+.ci-cache/
 *.xcuserstate
 xcuserdata/
 .DS_Store

@@ -22,9 +22,10 @@ class CacheGuards(unittest.TestCase):
         for name in ['ci-screenshots.sh', 'ci-regressions.sh']:
             shutil.copyfile(REPO / 'scripts' / name, self.root / 'scripts' / name)
         self.calls = self.root / 'compiler-calls'
-        fake = self.root / 'bin/xcrun'
-        fake.write_text('#!/bin/bash\nprintf "called\\n" >> "$GUARD_CALLS"\nexit 37\n')
-        fake.chmod(0o755)
+        for name in ['xcrun', 'xcodebuild']:
+            fake = self.root / 'bin' / name
+            fake.write_text('#!/bin/bash\nprintf "called\\n" >> "$GUARD_CALLS"\nexit 37\n')
+            fake.chmod(0o755)
         self.env = {**os.environ, 'PATH': f'{self.root / "bin"}:{os.environ["PATH"]}',
                     'GUARD_CALLS': str(self.calls), 'GITHUB_STEP_SUMMARY': str(self.root / 'summary')}
 

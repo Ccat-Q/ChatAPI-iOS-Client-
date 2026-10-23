@@ -28,12 +28,7 @@ fi
 
 preview_dir=$(mktemp -d)
 preview_device=""
-preview_boot_pid=""
 cleanup() {
-  if [[ -n "$preview_boot_pid" ]]; then
-    kill "$preview_boot_pid" 2>/dev/null || true
-    wait "$preview_boot_pid" 2>/dev/null || true
-  fi
   if [[ -n "$preview_device" ]]; then xcrun simctl shutdown "$preview_device" >/dev/null 2>&1 || true; fi
   rm -rf "$preview_dir"
 }
@@ -41,6 +36,14 @@ trap cleanup EXIT
 # Never leave old images eligible for a new input's cache on a partial restore.
 rm -rf "$preview_cache/images"
 rm -f build/screenshots/*.png
+# Cold simulator migration can block Xcode's destination discovery for minutes.
+# Keep these serial within this job; regressions and archive run on other runners.
+xcodebuild -project ChatAPIAdmin.xcodeproj -scheme ChatAPIAdmin -configuration Debug \
+  -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath "$preview_cache/DerivedData" build \
+  ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES SWIFT_OPTIMIZATION_LEVEL=-Onone \
+  DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=NO \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 xcrun simctl list devices available -j > "$preview_dir/devices.json"
 preview_device=$(python3 - "$preview_dir/devices.json" <<'PY'
 import json,sys
@@ -56,21 +59,8 @@ for runtime in sorted(devices, reverse=True):
 raise SystemExit('No available iPhone simulator runtime')
 PY
 )
-# Simulator migration and the Debug build are independent. Start both now.
-(
-  xcrun simctl boot "$preview_device"
-  xcrun simctl bootstatus "$preview_device" -b
-) > "$preview_dir/boot.log" 2>&1 &
-preview_boot_pid=$!
-xcodebuild -project ChatAPIAdmin.xcodeproj -scheme ChatAPIAdmin -configuration Debug \
-  -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath "$preview_cache/DerivedData" build \
-  ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES SWIFT_OPTIMIZATION_LEVEL=-Onone \
-  DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=NO \
-  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-if ! wait "$preview_boot_pid"; then cat "$preview_dir/boot.log"; exit 1; fi
-preview_boot_pid=""
-cat "$preview_dir/boot.log"
+xcrun simctl boot "$preview_device"
+xcrun simctl bootstatus "$preview_device" -b
 xcrun simctl ui "$preview_device" appearance light
 xcrun simctl status_bar "$preview_device" override --time '9:41' --batteryState charged --batteryLevel 100
 xcrun simctl install "$preview_device" "$preview_cache/DerivedData/Build/Products/Debug-iphonesimulator/ChatAPIAdmin.app"

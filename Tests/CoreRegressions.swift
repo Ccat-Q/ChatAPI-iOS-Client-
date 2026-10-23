@@ -227,7 +227,7 @@ private actor UnauthorizedCounter {
             defer { headerRequestFinished = true }
             do { let _: SuccessResponse = try await client.get("/fixture/oversize-headers"); return false }
             catch APIError.server { return true }
-            catch { return false }
+            catch { print("Oversized-header fixture returned unexpected error: \(error)"); return false }
         }
         defer { declared.cancel() }
         try await waitUntil("Declared oversized responses must fail before the body arrives") { headerRequestFinished }
